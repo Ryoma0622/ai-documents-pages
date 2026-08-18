@@ -173,6 +173,37 @@ if (await page.locator("#library-panel").evaluate((panel) => getComputedStyle(pa
 await page.locator("#library-toggle").click();
 if (await page.locator("#library-panel").evaluate((panel) => getComputedStyle(panel).display) === "none") throw new Error("モバイルのハンバーガーメニューでライブラリを開けません");
 
+await page.locator("#report-list .report-card").filter({ hasText: "HMD-1 全特殊記法デモ" }).click();
+await waitForReport();
+const demo = await page.evaluate(() => ({
+  title: document.title,
+  h1: document.querySelector("#report-view h1")?.textContent,
+  toc: Boolean(document.querySelector("#report-view [data-component=toc] [data-toc=list] a")),
+  gfmTable: Boolean(document.querySelector("#report-view table")),
+  taskList: document.querySelectorAll("#report-view input[type=checkbox]").length,
+  footnote: Boolean(document.querySelector("#report-view a[href^='#user-content-fn-']")),
+  callout: Boolean(document.querySelector("#report-view [data-component=callout]")),
+  metrics: document.querySelectorAll("#report-view [data-component=metric]").length,
+  label: Boolean(document.querySelector("#report-view [data-component=label]")),
+  text: Boolean(document.querySelector("#report-view [data-component=text]")),
+  tabs: Boolean(document.querySelector("#report-view [data-component=tabs]")),
+  details: document.querySelectorAll("#report-view [data-component=details]").length,
+  math: Boolean(document.querySelector("#report-view math")),
+  mermaid: Boolean(document.querySelector("#report-view [data-component=mermaid] svg[role=img]")),
+  svg: Boolean(document.querySelector("#report-view svg[role=img] title")),
+  plot: Boolean(document.querySelector("#report-view [data-component=plot] svg")),
+  audio: Boolean(document.querySelector("#report-view audio[controls]")),
+  transcript: Boolean(document.querySelector("#report-view [data-component=audio] + details")),
+  board: document.querySelectorAll("#report-view [data-component=board] [data-component=panel]").length,
+  panes: document.querySelectorAll("#report-view [data-component=panes] [data-component=pane]").length,
+  cards: document.querySelectorAll("#report-view [data-component=cards] [data-component=card]").length,
+  modal: Boolean(document.querySelector("#report-view [data-component=modal] [data-modal-open]")),
+  sandbox: Boolean(document.querySelector("#report-view [data-component=sandbox-html] [data-sandbox-run]")),
+}));
+if (!demo.title.includes("HMD-1 全特殊記法デモ") || !demo.h1 || !demo.toc || !demo.gfmTable || demo.taskList !== 3 || !demo.footnote || !demo.callout || demo.metrics !== 3 || !demo.label || !demo.text || !demo.tabs || demo.details !== 2 || !demo.math || !demo.mermaid || !demo.svg || !demo.plot || !demo.audio || !demo.transcript || demo.board !== 4 || demo.panes !== 3 || demo.cards !== 3 || !demo.modal || !demo.sandbox) {
+  throw new Error(`全特殊記法デモの表示が不完全です: ${JSON.stringify(demo)}`);
+}
+
 if (errors.length) throw new Error(errors.join("\n"));
 if (unexpectedRequests.length) throw new Error(`同一origin外の自動request: ${unexpectedRequests.join(", ")}`);
 
