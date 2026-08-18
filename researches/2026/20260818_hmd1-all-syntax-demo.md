@@ -145,9 +145,9 @@ plot は、JavaScript ではなく JSON Lines のデータ契約です。
 音声は自動再生せず、ネイティブの controls と全文 transcript を同時に提供します。
 
 ```audio
+src: ./assets/markdown-explainer-demo.mp3
 title: HMD-1 の設計要点
 caption: Markdown の正本と HTML の表示層を説明する音声
-src: ./assets/markdown-explainer-demo.mp3
 label: 設計要点
 ```
 

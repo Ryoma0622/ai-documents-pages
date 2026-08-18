@@ -81,9 +81,9 @@ ${fence}svg {title="図" description="説明"}
 ${fence}
 
 ${fence}audio
+src: ./assets/demo.mp3
 title: 音声
 caption: 音声の説明
-src: ./assets/demo.mp3
 label: 第1章
 ${fence}
 
@@ -202,6 +202,9 @@ test("safe HTML, Mermaid, plot, unknown directives, and missing transcripts foll
   await assert.rejects(parseMarkdown(document(`${fence}mermaid\n%%{initialize: {"securityLevel": "loose"}}%%\ngraph TD\n${fence}`), { sourceUrl }), /directive/);
   await assert.rejects(parseMarkdown(document(`${fence}mermaid\ngraph TD\n  A --> B\n  click A "https://evil.example"\n${fence}`), { sourceUrl }), /外部遷移/);
   await assert.rejects(parseMarkdown(document(`${fence}audio\nsrc: ./assets/demo.mp3\n${fence}`), { sourceUrl }), /transcript/);
+  await assert.rejects(parseMarkdown(document(`${fence}audio\nsrc: ./assets/demo.mp3\n${fence}\n\n:::details{summary="音声原稿" open="false"}\n   \n:::`), { sourceUrl }), /空にできません/);
+  await assert.rejects(parseMarkdown(document(`${fence}audio\nsrc: ./assets/demo.mp3\nunknown: value\n${fence}\n\n:::details{summary="音声原稿" open="false"}\n本文。\n:::`), { sourceUrl }), /キー/);
+  await assert.rejects(parseMarkdown(document(`${fence}svg {title="図" description="説明"}\n<svg viewBox="0 0 10 10"><title>本文側の title</title></svg>\n${fence}`), { sourceUrl }), /要素/);
 });
 
 test("dangerous references and SVG are rejected", async () => {

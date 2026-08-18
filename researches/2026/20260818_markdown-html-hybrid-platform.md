@@ -146,9 +146,9 @@ audio fenceは、既存Explainer Sitesの`title`、`caption`、複数の`src`、
 autoplayは使わず、ネイティブcontrols、章名、ダウンロードリンク、直後の全文transcriptを出力する。
 
 ```audio
+src: ./assets/markdown-explainer-demo.mp3
 title: ハイブリッド基盤の設計要点
 caption: Markdown正本とHTML表示の役割分担を聞く
-src: ./assets/markdown-explainer-demo.mp3
 label: 調査結果と設計判断
 ```
 

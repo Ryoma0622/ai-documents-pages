@@ -371,9 +371,9 @@ MVP では解釈を次のように厳密化する。
 
 ````markdown
 ```audio
+src: ./audio/design-part-01.mp3
 title: 設計解説
 caption: MVPの主要判断を12分で聞く
-src: ./audio/design-part-01.mp3
 label: 前提と構成
 src: ./audio/design-part-02.mp3
 label: セキュリティと検証

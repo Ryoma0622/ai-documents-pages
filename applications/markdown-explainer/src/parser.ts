@@ -1291,6 +1291,9 @@ function validateNode(node: Node, context: string, headings: Node[], assets: str
       if (transcript?.type !== "containerDirective" || transcript.name !== "details") {
         fail("audio fence の直後に transcript 用 details を置いてください", child);
       }
+      if (!childrenText(transcript)) {
+        fail("audio fence の transcript details は空にできません", child);
+      }
     }
     const childContext = node.type === "root" ? "root" : node.name ?? context;
     validateNode(child, childContext, headings, assets, state);
