@@ -1,0 +1,21 @@
+{
+  "schemaVersion": 1,
+  "reports": [
+    {
+      "id": "markdown-html-hybrid-platform",
+      "summary": "AIが編集しやすいMarkdownを正本にし、人間向けのHTML体験へ変換する基盤の調査とMVP設計。",
+      "published": "2026-08-18",
+      "lang": "ja",
+      "tags": [
+        "Markdown",
+        "HTML",
+        "GitHub Pages",
+        "AI"
+      ],
+      "title": "Markdown と HTML のハイブリッドレポート基盤",
+      "group": "researches",
+      "source": "content/researches/2026/20260818_markdown-html-hybrid-platform.md",
+      "revision": "4f6f7df454f173cb1498c557fcf3becd26ec4612db688d89e90a08c4a3b5cf0a"
+    }
+  ]
+}

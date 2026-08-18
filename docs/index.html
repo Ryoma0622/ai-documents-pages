@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; media-src 'self'; connect-src 'self'; font-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'"
+    />
+    <meta name="description" content="Markdownを正本にして、GitHub Pagesでリッチに読むレポートビューア" />
+    <title>Markdown Explainer</title>
+    <script type="module" crossorigin src="./assets/index-CFfOUQHy.js"></script>
+    <link rel="stylesheet" crossorigin href="./assets/index-C2XIvEO_.css">
+  </head>
+  <body>
+    <a class="skip-link" href="#app-main">本文へ移動</a>
+    <header class="site-header">
+      <a class="brand" href="./" aria-label="Markdown Explainer ホーム">
+        <span class="brand-mark" aria-hidden="true">M</span>
+        <span>Markdown Explainer</span>
+      </a>
+      <nav class="site-nav" aria-label="アプリケーション">
+        <a href="./">ライブラリ</a>
+        <button id="theme-toggle" type="button" aria-label="テーマを切り替える">テーマ</button>
+      </nav>
+    </header>
+
+    <div id="app-shell">
+      <aside id="library-panel" class="library-panel" aria-label="レポートライブラリ">
+        <div class="panel-heading">
+          <div>
+            <p class="eyebrow">SOURCE → VIEW</p>
+            <h2>レポートライブラリ</h2>
+          </div>
+          <span id="report-count" class="count-badge" aria-label="公開レポート数">—</span>
+        </div>
+        <label class="field-label" for="report-filter">レポートを絞り込む</label>
+        <input id="report-filter" class="text-input" type="search" placeholder="タイトル・タグで検索" autocomplete="off" />
+        <div id="report-list" class="report-list" aria-live="polite"></div>
+      </aside>
+
+      <main id="app-main" tabindex="-1">
+        <section id="app-status" class="status-card" role="status" aria-live="polite">
+          読み込み中…
+        </section>
+        <section class="hero-panel" aria-labelledby="hero-title">
+          <div class="hero-copy">
+            <p class="eyebrow">EDIT IN MARKDOWN · READ IN HTML</p>
+            <h1 id="hero-title">AIが編集しやすい正本を、人間が読みやすい画面へ。</h1>
+            <p>
+              MarkdownをGitで管理し、ブラウザ側の検証済みプリミティブで図・指標・タブ・音声を表示します。
+            </p>
+          </div>
+          <figure class="pipeline-figure">
+            <svg viewBox="0 0 560 190" role="img" aria-labelledby="pipeline-title pipeline-desc">
+              <title id="pipeline-title">MarkdownからHTMLへの表示パイプライン</title>
+              <desc id="pipeline-desc">Markdown正本をASTとして検証し、許可されたHTML部品へ変換して表示する流れ。</desc>
+              <g class="pipeline-line" fill="none" stroke="var(--accent)" stroke-width="3" stroke-linecap="round">
+                <path d="M150 95H228" />
+                <path d="M332 95H410" />
+              </g>
+              <g class="pipeline-node">
+                <rect x="20" y="44" width="130" height="102" rx="16" />
+                <text x="85" y="82" text-anchor="middle">Markdown</text>
+                <text x="85" y="109" text-anchor="middle" class="pipeline-muted">Git diff</text>
+              </g>
+              <g class="pipeline-node">
+                <rect x="228" y="44" width="104" height="102" rx="16" />
+                <text x="280" y="82" text-anchor="middle">AST</text>
+                <text x="280" y="109" text-anchor="middle" class="pipeline-muted">validate</text>
+              </g>
+              <g class="pipeline-node pipeline-node-accent">
+                <rect x="410" y="44" width="130" height="102" rx="16" />
+                <text x="475" y="82" text-anchor="middle">HTML</text>
+                <text x="475" y="109" text-anchor="middle" class="pipeline-muted">read · listen</text>
+              </g>
+              <circle class="pipeline-dot" cx="189" cy="95" r="5" />
+              <circle class="pipeline-dot pipeline-dot-delay" cx="370" cy="95" r="5" />
+            </svg>
+            <figcaption>正本と表示を同じソースから再現する。</figcaption>
+          </figure>
+        </section>
+        <article id="report-view" class="report-view" hidden></article>
+      </main>
+    </div>
+    <noscript>
+      <section class="noscript-card">
+        この閲覧画面には JavaScript が必要です。Markdown の正本はリポジトリ内で直接確認できます。
+      </section>
+    </noscript>
+  </body>
+</html>
