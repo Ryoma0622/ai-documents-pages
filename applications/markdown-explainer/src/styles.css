@@ -629,7 +629,8 @@ a {
   font-size: 0.75rem;
   font-weight: 600;
   line-height: 1.3;
-  vertical-align: baseline;
+  vertical-align: middle;
+  white-space: nowrap;
 }
 
 .mdx-label.size-sm { font-size: 0.6875rem; }
@@ -639,7 +640,12 @@ a {
 .mdx-label.tone-warning { color: var(--orange); }
 .mdx-label.tone-danger { color: var(--red); }
 .mdx-label.variant-soft { background: var(--fill-3); }
-.mdx-label.variant-solid { border-color: currentColor; background: currentColor; color: var(--bg); }
+.mdx-label.variant-solid { color: var(--bg); }
+.mdx-label.tone-neutral.variant-solid { border-color: var(--label); background: var(--label); }
+.mdx-label.tone-accent.variant-solid { border-color: var(--accent); background: var(--accent); }
+.mdx-label.tone-positive.variant-solid { border-color: var(--green); background: var(--green); }
+.mdx-label.tone-warning.variant-solid { border-color: var(--orange); background: var(--orange); }
+.mdx-label.tone-danger.variant-solid { border-color: var(--red); background: var(--red); }
 .mdx-label.variant-outline { border-color: currentColor; background: transparent; }
 
 .mdx-text.color-default { color: var(--label); }

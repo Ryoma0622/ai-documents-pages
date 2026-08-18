@@ -185,7 +185,20 @@ const demo = await page.evaluate(() => ({
   footnote: Boolean(document.querySelector("#report-view a[href^='#user-content-fn-']")),
   callout: Boolean(document.querySelector("#report-view [data-component=callout]")),
   metrics: document.querySelectorAll("#report-view [data-component=metric]").length,
-  label: Boolean(document.querySelector("#report-view [data-component=label]")),
+  labels: (() => {
+    const labels = [...document.querySelectorAll("#report-view [data-component=label]")];
+    const solid = labels.find((label) => label.classList.contains("variant-solid"));
+    const solidStyle = solid ? getComputedStyle(solid) : null;
+    const viewportWidth = document.documentElement.clientWidth;
+    return {
+      count: labels.length,
+      solidHasContrast: Boolean(solidStyle && solidStyle.backgroundColor !== solidStyle.color),
+      fitViewport: labels.every((label) => {
+        const rect = label.getBoundingClientRect();
+        return rect.left >= 0 && rect.right <= viewportWidth;
+      }),
+    };
+  })(),
   text: Boolean(document.querySelector("#report-view [data-component=text]")),
   tabs: Boolean(document.querySelector("#report-view [data-component=tabs]")),
   details: document.querySelectorAll("#report-view [data-component=details]").length,
@@ -201,7 +214,7 @@ const demo = await page.evaluate(() => ({
   modal: Boolean(document.querySelector("#report-view [data-component=modal] [data-modal-open]")),
   sandbox: Boolean(document.querySelector("#report-view [data-component=sandbox-html] [data-sandbox-run]")),
 }));
-if (!demo.title.includes("HMD-1 全特殊記法デモ") || !demo.h1 || !demo.toc || demo.tocDisplay !== "block" || !demo.gfmTable || demo.taskList !== 3 || !demo.footnote || !demo.callout || demo.metrics !== 3 || !demo.label || !demo.text || !demo.tabs || demo.details !== 2 || !demo.math || !demo.mermaid || !demo.svg || !demo.plot || !demo.audio || !demo.transcript || demo.board !== 4 || demo.panes !== 3 || demo.cards !== 3 || !demo.modal || !demo.sandbox) {
+if (!demo.title.includes("HMD-1 全特殊記法デモ") || !demo.h1 || !demo.toc || demo.tocDisplay !== "block" || !demo.gfmTable || demo.taskList !== 3 || !demo.footnote || !demo.callout || demo.metrics !== 3 || demo.labels.count !== 17 || !demo.labels.solidHasContrast || !demo.labels.fitViewport || !demo.text || !demo.tabs || demo.details !== 2 || !demo.math || !demo.mermaid || !demo.svg || !demo.plot || !demo.audio || !demo.transcript || demo.board !== 4 || demo.panes !== 3 || demo.cards !== 3 || !demo.modal || !demo.sandbox) {
   throw new Error(`全特殊記法デモの表示が不完全です: ${JSON.stringify(demo)}`);
 }
 

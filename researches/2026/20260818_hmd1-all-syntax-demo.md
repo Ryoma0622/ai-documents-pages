@@ -55,6 +55,19 @@ HMD-1 は、独自記法だけの言語ではありません。**太字**、*斜
 
 :label[HMD-1]{tone="accent" variant="solid" size="sm"} :label[検証済み]{tone="positive" variant="soft" size="sm"} :text[ここはテーマ token による装飾テキストです。]{color="muted" size="md"}
 
+### ラベルの tone / variant 全例
+
+既定サイズ `md` の全組み合わせです。`soft` は淡色背景、`solid` は塗りつぶし、`outline` は枠線で表示します。
+
+**soft**
+:label[中立]{tone="neutral" variant="soft"} :label[強調]{tone="accent" variant="soft"} :label[成功]{tone="positive" variant="soft"} :label[注意]{tone="warning" variant="soft"} :label[危険]{tone="danger" variant="soft"}
+
+**solid**
+:label[中立]{tone="neutral" variant="solid"} :label[強調]{tone="accent" variant="solid"} :label[成功]{tone="positive" variant="solid"} :label[注意]{tone="warning" variant="solid"} :label[危険]{tone="danger" variant="solid"}
+
+**outline**
+:label[中立]{tone="neutral" variant="outline"} :label[強調]{tone="accent" variant="outline"} :label[成功]{tone="positive" variant="outline"} :label[注意]{tone="warning" variant="outline"} :label[危険]{tone="danger" variant="outline"}
+
 :::callout{kind="tip" title="記法の読み方"}
 directive の属性は `key="value"` で宣言します。著者が任意の CSS やイベントハンドラーを直接入力するのではなく、既知の属性を選ぶことで、AI の生成とブラウザの検証を同じ契約にできます。
 :::
