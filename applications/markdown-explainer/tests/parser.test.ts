@@ -160,6 +160,7 @@ ${fence}
 `);
   const parsed = await parseMarkdown(markdown, { sourceUrl });
   assert.match(parsed.html, /data-component="toc"/);
+  assert.match(parsed.html, /data-toc-mobile="hidden"/);
   assert.match(parsed.html, /data-component="label"/);
   assert.match(parsed.html, /data-component="text"/);
   assert.match(parsed.html, /data-component="panes"/);
@@ -174,6 +175,12 @@ ${fence}
   await assert.rejects(parseMarkdown(document(`:unknown[Bad]`), { sourceUrl }), /未知/);
   await assert.rejects(parseMarkdown(document(":::cards{label=\"不正\" columns=\"2\" unknown=\"x\"}\n:::card{title=\"A\"}\nA\n:::\n:::card{title=\"B\"}\nB\n:::\n::::"), { sourceUrl }), /属性/);
   await assert.rejects(parseMarkdown(document(`${fence}sandbox-html {title="Demo" scripts="true" height="120"}\n<p>x</p>\n${fence}`), { sourceUrl }), /height/);
+});
+
+test("TOC defaults to mobile visible", async () => {
+  const parsed = await parseMarkdown(document("::toc[Contents]\n\n## Section\n本文。"), { sourceUrl });
+  assert.match(parsed.html, /class="mdx-toc mobile-visible"/);
+  assert.match(parsed.html, /data-toc-mobile="visible"/);
 });
 
 test("safe HTML, Mermaid, plot, unknown directives, and missing transcripts follow the contract", async () => {

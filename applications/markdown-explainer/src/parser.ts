@@ -976,10 +976,10 @@ function createHandlers() {
         const minLevel = parseGridInteger(values.minLevel || "2", "toc の minLevel", 1, 6, node);
         const maxLevel = parseGridInteger(values.maxLevel || "4", "toc の maxLevel", minLevel, 6, node);
         if (!["true", "false"].includes(values.ordered || "false")) fail("toc の ordered は true または false です", node);
-        if (!["hidden", "visible"].includes(values.mobile || "hidden")) fail("toc の mobile は hidden または visible です", node);
+        if (!["hidden", "visible"].includes(values.mobile || "visible")) fail("toc の mobile は hidden または visible です", node);
         const label = childrenText(node) || "目次";
         ensureLength(label, "toc の label", 1, 80, node);
-        return makeElement("nav", { className: ["mdx-toc", `mobile-${values.mobile || "hidden"}`], dataComponent: "toc", dataToc: "true", dataTocMinLevel: String(minLevel), dataTocMaxLevel: String(maxLevel), dataTocOrdered: values.ordered || "false", dataTocMobile: values.mobile || "hidden", ariaLabel: label }, [
+        return makeElement("nav", { className: ["mdx-toc", `mobile-${values.mobile || "visible"}`], dataComponent: "toc", dataToc: "true", dataTocMinLevel: String(minLevel), dataTocMaxLevel: String(maxLevel), dataTocOrdered: values.ordered || "false", dataTocMobile: values.mobile || "visible", ariaLabel: label }, [
           makeElement("h2", { dataRendererHeading: "true" }, [makeText(label)]),
           makeElement("div", { className: ["mdx-toc-list"], dataToc: "list" }),
         ]);
@@ -1191,7 +1191,7 @@ function validateNode(node: Node, context: string, headings: Node[], assets: str
       const minLevel = parseGridInteger(values.minLevel || "2", "toc の minLevel", 1, 6, node);
       parseGridInteger(values.maxLevel || "4", "toc の maxLevel", minLevel, 6, node);
       if (!["true", "false"].includes(values.ordered || "false")) fail("toc の ordered は true または false です", node);
-      if (!["hidden", "visible"].includes(values.mobile || "hidden")) fail("toc の mobile は hidden または visible です", node);
+      if (!["hidden", "visible"].includes(values.mobile || "visible")) fail("toc の mobile は hidden または visible です", node);
       if (childrenText(node).length > 80) fail("toc の label は80文字以下で指定してください", node);
     }
     if (node.name === "panes" || node.name === "cards" || node.name === "modal") {

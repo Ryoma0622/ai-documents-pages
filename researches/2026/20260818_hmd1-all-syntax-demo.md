@@ -15,7 +15,7 @@ tags:
 
 このページは、AI が編集しやすい Markdown の正本に、HTML の情報表現を足す HMD-1 の動作確認用サンプルです。ライブラリからこのレポートを選び、上から順に読み進めると、各記法のソースと表示結果を確認できます。
 
-::toc[このデモの目次]{minLevel="2" maxLevel="3" ordered="false" mobile="hidden"}
+::toc[このデモの目次]{minLevel="2" maxLevel="3" ordered="false"}
 
 ## 1. 基本 Markdown と GFM
 

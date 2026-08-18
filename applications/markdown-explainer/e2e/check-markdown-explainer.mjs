@@ -179,6 +179,7 @@ const demo = await page.evaluate(() => ({
   title: document.title,
   h1: document.querySelector("#report-view h1")?.textContent,
   toc: Boolean(document.querySelector("#report-view [data-component=toc] [data-toc=list] a")),
+  tocDisplay: getComputedStyle(document.querySelector("#report-view [data-component=toc]")).display,
   gfmTable: Boolean(document.querySelector("#report-view table")),
   taskList: document.querySelectorAll("#report-view input[type=checkbox]").length,
   footnote: Boolean(document.querySelector("#report-view a[href^='#user-content-fn-']")),
@@ -200,7 +201,7 @@ const demo = await page.evaluate(() => ({
   modal: Boolean(document.querySelector("#report-view [data-component=modal] [data-modal-open]")),
   sandbox: Boolean(document.querySelector("#report-view [data-component=sandbox-html] [data-sandbox-run]")),
 }));
-if (!demo.title.includes("HMD-1 全特殊記法デモ") || !demo.h1 || !demo.toc || !demo.gfmTable || demo.taskList !== 3 || !demo.footnote || !demo.callout || demo.metrics !== 3 || !demo.label || !demo.text || !demo.tabs || demo.details !== 2 || !demo.math || !demo.mermaid || !demo.svg || !demo.plot || !demo.audio || !demo.transcript || demo.board !== 4 || demo.panes !== 3 || demo.cards !== 3 || !demo.modal || !demo.sandbox) {
+if (!demo.title.includes("HMD-1 全特殊記法デモ") || !demo.h1 || !demo.toc || demo.tocDisplay !== "block" || !demo.gfmTable || demo.taskList !== 3 || !demo.footnote || !demo.callout || demo.metrics !== 3 || !demo.label || !demo.text || !demo.tabs || demo.details !== 2 || !demo.math || !demo.mermaid || !demo.svg || !demo.plot || !demo.audio || !demo.transcript || demo.board !== 4 || demo.panes !== 3 || demo.cards !== 3 || !demo.modal || !demo.sandbox) {
   throw new Error(`全特殊記法デモの表示が不完全です: ${JSON.stringify(demo)}`);
 }
 

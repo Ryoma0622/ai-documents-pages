@@ -14,7 +14,7 @@ tags:
 
 # Markdown と HTML のハイブリッドレポート基盤
 
-::toc[このページの目次]{minLevel="2" maxLevel="3" ordered="false" mobile="hidden"}
+::toc[このページの目次]{minLevel="2" maxLevel="3" ordered="false"}
 
 ## 結論
 
