@@ -441,7 +441,7 @@ function importSafeMermaidSvg(value: string): SVGSVGElement {
     "fill", "fill-opacity", "fill-rule", "stroke", "stroke-width", "stroke-opacity", "stroke-linecap", "stroke-linejoin", "opacity",
     "stroke-dasharray", "stroke-dashoffset", "font-family", "font-size", "font-weight", "font-style", "text-anchor", "dominant-baseline", "alignment-baseline", "offset",
     "shape-rendering", "color-interpolation", "pointer-events", "filter", "clip-path", "mask", "letter-spacing", "word-spacing", "writing-mode", "white-space", "text-decoration", "xml:space",
-    "stop-color", "stop-opacity", "marker-start", "marker-mid", "marker-end", "markerUnits", "markerWidth", "markerHeight", "refX", "refY", "orient",
+    "stop-color", "stop-opacity", "marker-start", "marker-mid", "marker-end", "markerUnits", "markerWidth", "markerHeight", "refX", "refY", "orient", "gradientUnits", "gradientTransform", "spreadMethod",
     "flood-opacity", "flood-color",
   ]);
   const forbidden = new Set(["script", "foreignObject", "iframe", "object", "embed", "image", "use", "a"]);
