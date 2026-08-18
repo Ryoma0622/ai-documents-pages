@@ -151,6 +151,58 @@ label: 調査結果と設計判断
 この音声は、Markdownを正本として保ちながら、ブラウザ側で検証済みのHTML部品へ変換する考え方を説明する。
 :::
 
+### 3.4 GFM、数式、Mermaid、2次元レイアウト
+
+通常のCommonMarkとGFMを特別扱いせず、そのまま正本の基本語彙として使う。
+表、タスクリスト、打ち消し線、自動リンク、脚注、reference-style link、コード、画像、引用、順序付きリストをブラウザ側でも解釈する。
+raw HTMLだけは、見出しや操作部品を偽装できない受動的なインライン要素に限定する。
+
+インライン数式は `$...$`、表示数式は `$$...$$` で書く。
+KaTeXが生成するMathMLを出力し、数式のソースをMarkdownの短い記法のまま保持する。
+例えば、エネルギーと質量の関係は $E = mc^2$ と書ける。
+
+$$
+\int_0^1 x^2\,dx = \frac{1}{3}
+$$
+
+Mermaidは専用fenceにする。
+ソースはAIが追いやすいテキストのままで、表示時だけ図へ変換する。
+`init` directive、外部遷移、callbackは受け付けず、ビルド時にも構文を検証する。
+
+```mermaid {title="変換パイプライン" description="Markdownを検証してHTMLへ変換する流れ"}
+flowchart LR
+  A[Markdown] --> B[AST検証]
+  B --> C[HTML表示]
+```
+
+定量データはJSON Linesの`plot` fenceで宣言する。
+これは自由形式のJavaScriptではなく、bar、line、scatterのいずれかを選ぶ小さなデータ契約である。
+
+```plot {type="line" title="検証工程の進捗" xLabel="工程" yLabel="件数"}
+{"x":"収集","y":2}
+{"x":"検証","y":5}
+{"x":"表示","y":8}
+```
+
+HTMLの2次元情報には、座標付きの`board`と`panel`を使う。
+著者は`x`、`y`、`w`、`h`を宣言し、ブラウザはCSS Gridとして表示する。
+パネルの重なりや範囲外指定はビルド時に拒否し、狭い画面ではソース順に一列へ積む。
+
+::::board{label="ハイブリッド基盤の責務" columns="3"}
+:::panel{title="正本" x="1" y="1" w="1" h="2"}
+Markdown、GFM、directive、fenceをGitでレビューする。
+:::
+:::panel{title="変換" x="2" y="1" w="1" h="1"}
+AST、URL、allowlistを検証してHTMLを生成する。
+:::
+:::panel{title="表示" x="3" y="1" w="1" h="2"}
+図、数式、表、音声、操作部品を人間向けに提示する。
+:::
+:::panel{title="AIとの契約" x="2" y="2" w="1" h="1"}
+生成HTMLを正本にせず、短いMarkdownと記法仕様を入力にする。
+:::
+::::
+
 ## 4. GitHub Pagesで実現できるか
 
 実現できる。
@@ -176,11 +228,12 @@ DOMPurifyはDOM上のHTML、MathML、SVGをサニタイズする代表的な実�
 
 このMVPが拒否するものは次のとおりである。
 
-- raw HTML、MDX、JSX、任意JavaScript、任意CSS、未知directive。
+- 任意のraw HTML、MDX、JSX、任意JavaScript、任意CSS、未知directive。
+- ただし、`abbr`、`cite`、`kbd`、`mark`、`q`、`small`、`span`、`sub`、`sup`、`time`などの受動的なインラインHTMLは限定的に受け付ける。
 - `javascript:`、`data:`、protocol-relative URL、外部の画像・音声。
 - report rootの外に出る相対パス、存在しないアセット。
 - SVGのscript、style、foreignObject、image、use、SMIL、外部参照。
-- Mermaidなど、実行時ライブラリを必要とする未定義のfence。
+- 未定義のfence、Mermaidの`init` directive、外部遷移、callback。
 
 GitHub Pages側にはレスポンスヘッダーを設定できないため、HTML shellに同一originだけを許可するCSP metaを置く。
 WCAGはテキストだけでなく、画像、音声、動的コンテンツ、AIインターフェースも対象にする [S20][]。
@@ -192,9 +245,11 @@ WCAGはテキストだけでなく、画像、音声、動的コンテンツ、A
 公開対象は既存の六つのreport rootから`explainer: true`を持つMarkdownだけを再帰走査する。
 manifestには本文のSHA-256 revisionを含め、ブラウザは取得した本文のrevisionを検証してからDOMへ挿入する。
 
-実装した独自記法は、callout、metrics、tabs、details、SVG fence、audio fenceである。
+実装した独自記法は、callout、metrics、tabs、details、board／panel、SVG fence、Mermaid fence、数式、plot fence、audio fenceである。
 標準GFMの表は横スクロール可能なregionへ包み、見出しfragment、レポート選択、戻る・進む、タブURL、テーマ切り替えをJavaScriptで扱う。
-パーサーはbuildとbrowserで共有し、raw HTMLを表示へフォールバックしない。
+パーサーはbuildとbrowserで共有し、受動的HTML以外のraw HTMLを表示へフォールバックしない。
+Mermaidはビルド時に構文を確認し、表示時にstrict設定でSVGへ変換する。
+数式はMathMLとして出力するため、外部フォントやinline styleに依存しない。
 
 :::callout{kind="tip" title="MVPの判断"}
 VueやReactを必須にせず、semantic HTML、CSS、最小限のDOMイベント処理で実装した。
@@ -204,12 +259,14 @@ GitHub Pagesに置くための依存関係はlockfileで固定し、CDNを使わ
 ## 7. 残る制約と次の判断
 
 この設計は、自由形式のdashboardを作るDSLではない。
-Chart.js、D3、Mermaid、数式、iframe、video、外部widget、データfetch、認証、検索、PWAはMVPの対象外とした。
+Chart.js、D3、Three.js、MapLibre、iframe、video、外部widget、データfetch、認証、検索、PWAはMVPの対象外とした。
+Mermaid、数式、限定的な2次元board、宣言的なplotはMVPに含めた。
 表現力を増やすほど、独自記法の仕様、サニタイズ、アクセシビリティ、差分レビュー、AI入力の契約が同時に重くなるためである。
 
 独立した反論は、HTMLのsource readability、diffability、securityの問題を指摘し、Markdownと既知のHTMLテンプレートの組み合わせを提案している [S7][]。
 Hacker Newsの議論にも、Markdownをsource of truthにして既知のHTMLテンプレートへ変換する方向と、ソースを共同編集する価値への言及がある [S8][]。
-このMVPは、その中間案として「Markdownの編集面」と「HTMLの表示面」を分けるが、許可された語彙を増やしすぎない。
+このMVPは、その中間案として「Markdownの編集面」と「HTMLの表示面」を分ける。
+記法を増やすときも、AIが読む正本の短さ、diffの局所性、AST検証、アクセシビリティを同時に保てる小さな契約に限定する。
 
 本調査からの実務上の判断は、既存のExplainer Sitesを置き換えることではない。
 既存viewerはそのまま維持し、pilot reportだけにfront matterを追加し、新しいPages artifactで直接リンク、モバイル、キーボード、音声、XSS corpusを確認してから公開集合を増やすことである。

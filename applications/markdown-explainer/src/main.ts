@@ -192,6 +192,92 @@ function enhanceTabs(tabState: Map<string, string>): void {
   }
 }
 
+function importSafeMermaidSvg(value: string): SVGSVGElement {
+  const documentValue = new DOMParser().parseFromString(value, "image/svg+xml");
+  if (documentValue.querySelector("parsererror")) throw new Error("MermaidのSVGを解析できませんでした");
+  const root = documentValue.documentElement;
+  if (root.localName !== "svg") throw new Error("Mermaidの出力ルートがSVGではありません");
+  const allowedElements = new Set([
+    "svg", "title", "desc", "g", "defs", "marker", "path", "rect", "circle", "ellipse", "line", "polyline", "polygon",
+    "text", "tspan", "filter", "feDropShadow", "linearGradient", "radialGradient", "stop", "clipPath", "mask", "pattern",
+  ]);
+  const allowedAttributes = new Set([
+    "id", "class", "xmlns", "xmlns:xlink", "version", "role", "focusable", "width", "height", "viewBox", "preserveAspectRatio",
+    "x", "y", "x1", "y1", "x2", "y2", "cx", "cy", "r", "rx", "ry", "d", "points", "transform", "dx", "dy", "stdDeviation", "textLength", "lengthAdjust",
+    "fill", "fill-opacity", "fill-rule", "stroke", "stroke-width", "stroke-opacity", "stroke-linecap", "stroke-linejoin", "opacity",
+    "stroke-dasharray", "stroke-dashoffset", "font-family", "font-size", "font-weight", "font-style", "text-anchor", "dominant-baseline", "alignment-baseline", "offset",
+    "shape-rendering", "color-interpolation", "pointer-events", "filter", "clip-path", "mask", "letter-spacing", "word-spacing", "writing-mode", "white-space", "text-decoration", "xml:space",
+    "stop-color", "stop-opacity", "marker-start", "marker-mid", "marker-end", "markerUnits", "markerWidth", "markerHeight", "refX", "refY", "orient",
+    "flood-opacity", "flood-color",
+  ]);
+  const forbidden = new Set(["script", "foreignObject", "iframe", "object", "embed", "image", "use", "a"]);
+  for (const element of [root, ...root.querySelectorAll("*")]) {
+    if (forbidden.has(element.localName)) throw new Error(`Mermaidの出力に許可されない要素 ${element.localName} があります`);
+    if (element.localName === "style") {
+      element.remove();
+      continue;
+    }
+    if (!allowedElements.has(element.localName)) throw new Error(`Mermaidの出力に未知の要素 ${element.localName} があります`);
+    for (const attribute of [...element.attributes]) {
+      const name = attribute.name.toLowerCase();
+      const attributeValue = attribute.value;
+      if (name.startsWith("on") || ["href", "xlink:href", "src"].includes(name) || /(?:javascript|vbscript|data):/i.test(attributeValue)) {
+        throw new Error("Mermaidの出力に危険な属性があります");
+      }
+      if (name === "style") {
+        element.removeAttribute(attribute.name);
+        continue;
+      }
+      if (!allowedAttributes.has(attribute.name) && !name.startsWith("aria-") && !name.startsWith("data-")) throw new Error(`Mermaidの出力に未知の属性 ${attribute.name} があります`);
+    }
+  }
+  return document.importNode(root, true) as unknown as SVGSVGElement;
+}
+
+async function enhanceMermaid(): Promise<void> {
+  const figures = [...reportView.querySelectorAll<HTMLElement>('[data-component="mermaid"]')];
+  if (!figures.length) return;
+  const { default: mermaid } = await import("mermaid");
+  mermaid.initialize({
+    startOnLoad: false,
+    securityLevel: "strict",
+    deterministicIds: true,
+    htmlLabels: false,
+    theme: document.documentElement.dataset.theme === "dark" ? "dark" : "default",
+  });
+  for (const [index, figure] of figures.entries()) {
+    const canvas = figure.querySelector<HTMLElement>("[data-mermaid-canvas]");
+    const source = figure.querySelector<HTMLElement>("[data-mermaid-source]")?.textContent?.trim();
+    if (!canvas || !source) throw new Error("Mermaidのソースまたは表示領域が不正です");
+    const title = figure.dataset.mermaidTitle || "Mermaid diagram";
+    const description = figure.dataset.mermaidDescription || "Mermaid 記法から生成された図解です。";
+    const originalCreateElement = document.createElement;
+    document.createElement = ((tagName: string, options?: ElementCreationOptions) => {
+      const element = originalCreateElement.call(document, tagName, options);
+      if (tagName.toLowerCase() === "style") element.setAttribute("nonce", "mermaid");
+      return element;
+    }) as typeof document.createElement;
+    let rendered;
+    try {
+      rendered = await mermaid.render(`mermaid-diagram-${index}`, source);
+    } finally {
+      document.createElement = originalCreateElement;
+    }
+    const svg = importSafeMermaidSvg(rendered.svg);
+    const titleNode = document.createElementNS("http://www.w3.org/2000/svg", "title");
+    const descriptionNode = document.createElementNS("http://www.w3.org/2000/svg", "desc");
+    titleNode.id = `mermaid-diagram-${index}-title`;
+    descriptionNode.id = `mermaid-diagram-${index}-description`;
+    titleNode.textContent = title;
+    descriptionNode.textContent = description;
+    svg.setAttribute("role", "img");
+    svg.setAttribute("aria-labelledby", `${titleNode.id} ${descriptionNode.id}`);
+    svg.setAttribute("focusable", "false");
+    svg.prepend(titleNode, descriptionNode);
+    canvas.replaceChildren(svg);
+  }
+}
+
 function enhanceAudio(): void {
   for (const figure of reportView.querySelectorAll<HTMLElement>("[data-component=\"audio\"]")) {
     const player = figure.querySelector<HTMLAudioElement>("audio[data-audio-player]");
@@ -287,6 +373,7 @@ async function renderRoute(): Promise<void> {
     reportView.innerHTML = parsed.html;
     addReportMeta(report);
     enhanceTabs(tabState);
+    await enhanceMermaid();
     enhanceAudio();
     enhanceImages();
     const heading = reportView.querySelector<HTMLElement>("h1");
@@ -339,6 +426,7 @@ themeToggle.addEventListener("click", () => {
     const next = document.documentElement.dataset.theme === "dark" ? "light" : "dark";
     document.documentElement.dataset.theme = next;
     localStorage.setItem(themeKey, next);
+    void enhanceMermaid().catch((error: unknown) => showError(error instanceof Error ? error.message : "Mermaid図のテーマを更新できませんでした。"));
   } catch {
     showError("テーマ設定を保存できません。ブラウザのlocalStorageを有効にしてください。");
   }

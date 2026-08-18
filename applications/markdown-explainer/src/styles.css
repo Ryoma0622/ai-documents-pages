@@ -533,6 +533,17 @@ a {
   font-size: 0.9em;
 }
 
+.report-view .katex-display {
+  max-width: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding: var(--space-sm) 0;
+}
+
+.report-view .katex {
+  color: var(--label);
+}
+
 .report-meta {
   display: flex;
   flex-wrap: wrap;
@@ -746,6 +757,211 @@ a {
   display: block;
   max-width: 100%;
   height: auto;
+}
+
+.mdx-mermaid,
+.mdx-plot {
+  min-width: 0;
+  padding: var(--space-md);
+  border: 1px solid var(--separator);
+  border-radius: var(--radius-card);
+  background: var(--surface-2);
+}
+
+.mdx-mermaid figcaption,
+.mdx-plot figcaption {
+  margin-bottom: var(--space-sm);
+  font-weight: 600;
+}
+
+.mdx-mermaid-canvas,
+.mdx-plot {
+  max-width: 100%;
+  overflow-x: auto;
+}
+
+.mdx-mermaid-canvas svg,
+.mdx-plot-svg {
+  display: block;
+  width: 100%;
+  min-width: 520px;
+  height: auto;
+}
+
+.mdx-mermaid-canvas svg {
+  max-height: 720px;
+  color: var(--label);
+}
+
+.mdx-mermaid-canvas svg text,
+.mdx-mermaid-canvas svg .label,
+.mdx-mermaid-canvas svg .nodeLabel,
+.mdx-mermaid-canvas svg .edgeLabel {
+  fill: var(--label);
+  color: var(--label);
+}
+
+.mdx-mermaid-canvas svg .node rect,
+.mdx-mermaid-canvas svg .node circle,
+.mdx-mermaid-canvas svg .node polygon,
+.mdx-mermaid-canvas svg .node path,
+.mdx-mermaid-canvas svg .cluster rect {
+  fill: var(--surface);
+  stroke: var(--accent);
+}
+
+.mdx-mermaid-canvas svg .edgePath .path,
+.mdx-mermaid-canvas svg .flowchart-link,
+.mdx-mermaid-canvas svg .relation {
+  stroke: var(--accent);
+}
+
+.mdx-plot-svg {
+  min-height: 240px;
+}
+
+.mdx-plot-grid {
+  stroke: var(--separator);
+  stroke-dasharray: 4 4;
+  stroke-width: 1;
+}
+
+.mdx-plot-axis {
+  stroke: var(--label-2);
+  stroke-width: 1.2;
+}
+
+.mdx-plot-axis-label,
+.mdx-plot-axis-title {
+  fill: var(--label);
+  font-family: var(--font);
+  font-size: 12px;
+}
+
+.mdx-plot-line {
+  fill: none;
+  stroke: var(--accent);
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 3;
+}
+
+.mdx-plot-point,
+.mdx-plot-bar {
+  fill: var(--accent);
+}
+
+.mdx-plot-data,
+.mdx-diagram-source {
+  margin-top: var(--space-md);
+  border-top: 1px solid var(--separator);
+}
+
+.mdx-board {
+  min-width: 0;
+  padding: var(--space-md);
+  border: 1px solid var(--separator);
+  border-radius: var(--radius-card);
+  background: var(--surface-2);
+}
+
+.mdx-board-grid {
+  display: grid;
+  gap: var(--space-md);
+  grid-auto-rows: minmax(6rem, auto);
+}
+
+.mdx-board.columns-2 .mdx-board-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.mdx-board.columns-3 .mdx-board-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.mdx-board.columns-4 .mdx-board-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+
+.mdx-board-panel {
+  min-width: 0;
+  padding: var(--space-md);
+  overflow: auto;
+  border: 1px solid var(--separator);
+  border-radius: var(--radius-card);
+  background: var(--surface);
+}
+
+.mdx-board-panel > :first-child { margin-top: 0; }
+.mdx-board-panel > :last-child { margin-bottom: 0; }
+
+.mdx-board-panel.mdx-panel-x1-w1 { grid-column: 1 / span 1; }
+.mdx-board-panel.mdx-panel-x1-w2 { grid-column: 1 / span 2; }
+.mdx-board-panel.mdx-panel-x1-w3 { grid-column: 1 / span 3; }
+.mdx-board-panel.mdx-panel-x1-w4 { grid-column: 1 / span 4; }
+.mdx-board-panel.mdx-panel-x2-w1 { grid-column: 2 / span 1; }
+.mdx-board-panel.mdx-panel-x2-w2 { grid-column: 2 / span 2; }
+.mdx-board-panel.mdx-panel-x2-w3 { grid-column: 2 / span 3; }
+.mdx-board-panel.mdx-panel-x2-w4 { grid-column: 2 / span 4; }
+.mdx-board-panel.mdx-panel-x3-w1 { grid-column: 3 / span 1; }
+.mdx-board-panel.mdx-panel-x3-w2 { grid-column: 3 / span 2; }
+.mdx-board-panel.mdx-panel-x3-w3 { grid-column: 3 / span 3; }
+.mdx-board-panel.mdx-panel-x3-w4 { grid-column: 3 / span 4; }
+.mdx-board-panel.mdx-panel-x4-w1 { grid-column: 4 / span 1; }
+.mdx-board-panel.mdx-panel-x4-w2 { grid-column: 4 / span 2; }
+.mdx-board-panel.mdx-panel-x4-w3 { grid-column: 4 / span 3; }
+.mdx-board-panel.mdx-panel-x4-w4 { grid-column: 4 / span 4; }
+.mdx-board-panel.mdx-panel-y1-h1 { grid-row: 1 / span 1; }
+.mdx-board-panel.mdx-panel-y1-h2 { grid-row: 1 / span 2; }
+.mdx-board-panel.mdx-panel-y1-h3 { grid-row: 1 / span 3; }
+.mdx-board-panel.mdx-panel-y1-h4 { grid-row: 1 / span 4; }
+.mdx-board-panel.mdx-panel-y1-h5 { grid-row: 1 / span 5; }
+.mdx-board-panel.mdx-panel-y1-h6 { grid-row: 1 / span 6; }
+.mdx-board-panel.mdx-panel-y2-h1 { grid-row: 2 / span 1; }
+.mdx-board-panel.mdx-panel-y2-h2 { grid-row: 2 / span 2; }
+.mdx-board-panel.mdx-panel-y2-h3 { grid-row: 2 / span 3; }
+.mdx-board-panel.mdx-panel-y2-h4 { grid-row: 2 / span 4; }
+.mdx-board-panel.mdx-panel-y2-h5 { grid-row: 2 / span 5; }
+.mdx-board-panel.mdx-panel-y2-h6 { grid-row: 2 / span 6; }
+.mdx-board-panel.mdx-panel-y3-h1 { grid-row: 3 / span 1; }
+.mdx-board-panel.mdx-panel-y3-h2 { grid-row: 3 / span 2; }
+.mdx-board-panel.mdx-panel-y3-h3 { grid-row: 3 / span 3; }
+.mdx-board-panel.mdx-panel-y3-h4 { grid-row: 3 / span 4; }
+.mdx-board-panel.mdx-panel-y3-h5 { grid-row: 3 / span 5; }
+.mdx-board-panel.mdx-panel-y3-h6 { grid-row: 3 / span 6; }
+.mdx-board-panel.mdx-panel-y4-h1 { grid-row: 4 / span 1; }
+.mdx-board-panel.mdx-panel-y4-h2 { grid-row: 4 / span 2; }
+.mdx-board-panel.mdx-panel-y4-h3 { grid-row: 4 / span 3; }
+.mdx-board-panel.mdx-panel-y4-h4 { grid-row: 4 / span 4; }
+.mdx-board-panel.mdx-panel-y4-h5 { grid-row: 4 / span 5; }
+.mdx-board-panel.mdx-panel-y4-h6 { grid-row: 4 / span 6; }
+.mdx-board-panel.mdx-panel-y5-h1 { grid-row: 5 / span 1; }
+.mdx-board-panel.mdx-panel-y5-h2 { grid-row: 5 / span 2; }
+.mdx-board-panel.mdx-panel-y5-h3 { grid-row: 5 / span 3; }
+.mdx-board-panel.mdx-panel-y5-h4 { grid-row: 5 / span 4; }
+.mdx-board-panel.mdx-panel-y5-h5 { grid-row: 5 / span 5; }
+.mdx-board-panel.mdx-panel-y5-h6 { grid-row: 5 / span 6; }
+.mdx-board-panel.mdx-panel-y6-h1 { grid-row: 6 / span 1; }
+.mdx-board-panel.mdx-panel-y6-h2 { grid-row: 6 / span 2; }
+.mdx-board-panel.mdx-panel-y6-h3 { grid-row: 6 / span 3; }
+.mdx-board-panel.mdx-panel-y6-h4 { grid-row: 6 / span 4; }
+.mdx-board-panel.mdx-panel-y6-h5 { grid-row: 6 / span 5; }
+.mdx-board-panel.mdx-panel-y6-h6 { grid-row: 6 / span 6; }
+
+@media (max-width: 640px) {
+  .mdx-board-grid { grid-template-columns: 1fr !important; }
+  .mdx-board-panel[class*="mdx-panel-x"],
+  .mdx-board-panel[class*="mdx-panel-y"] {
+    grid-column: 1 / -1;
+    grid-row: auto;
+  }
+}
+
+.mdx-plot-data summary,
+.mdx-diagram-source summary {
+  display: flex;
+  align-items: center;
+  min-height: 44px;
+  color: var(--label);
+  cursor: pointer;
+  font-size: 0.875rem;
+}
+
+.mdx-plot-data pre,
+.mdx-diagram-source pre {
+  margin-bottom: 0;
 }
 
 .mdx-audio {

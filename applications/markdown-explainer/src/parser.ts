@@ -3,9 +3,12 @@ import { toHtml } from "hast-util-to-html";
 import { defaultSchema, sanitize } from "hast-util-sanitize";
 import GithubSlugger from "github-slugger";
 import { unified } from "unified";
+import rehypeKatex from "rehype-katex";
+import rehypeRaw from "rehype-raw";
 import remarkDirective from "remark-directive";
 import remarkFrontmatter from "remark-frontmatter";
 import remarkGfm from "remark-gfm";
+import remarkMath from "remark-math";
 import remarkParse from "remark-parse";
 import remarkRehype from "remark-rehype";
 import YAML from "yaml";
@@ -41,11 +44,12 @@ type ParserResult = {
   assets: string[];
 };
 
-const allowedDirectiveNames = new Set(["callout", "metrics", "metric", "tabs", "tab", "details"]);
+const allowedDirectiveNames = new Set(["callout", "metrics", "metric", "tabs", "tab", "details", "board", "panel"]);
 const allowedCalloutKinds = new Set(["note", "tip", "important", "warning", "danger"]);
 const allowedMetricTones = new Set(["neutral", "positive", "warning", "negative"]);
 const allowedAudioExtensions = new Set(["aac", "flac", "m4a", "mp3", "ogg", "opus", "wav"]);
 const allowedImageExtensions = new Set(["png", "jpg", "jpeg", "webp", "gif", "avif"]);
+const allowedPlotTypes = new Set(["bar", "line", "scatter"]);
 const allowedSvgTags = new Set([
   "svg",
   "g",
@@ -112,7 +116,9 @@ const allowedSvgAttributes = new Set([
   "markerheight",
 ]);
 const allowedHtmlTags = [
+  "address",
   "article",
+  "abbr",
   "section",
   "aside",
   "div",
@@ -129,6 +135,19 @@ const allowedHtmlTags = [
   "strong",
   "em",
   "del",
+  "ins",
+  "s",
+  "u",
+  "small",
+  "mark",
+  "sub",
+  "sup",
+  "cite",
+  "q",
+  "kbd",
+  "samp",
+  "var",
+  "time",
   "blockquote",
   "ul",
   "ol",
@@ -150,6 +169,11 @@ const allowedHtmlTags = [
   "figcaption",
   "button",
   "input",
+  "main",
+  "nav",
+  "header",
+  "footer",
+  "hgroup",
   "details",
   "summary",
   "audio",
@@ -172,11 +196,43 @@ const allowedHtmlTags = [
   "tspan",
   "title",
   "desc",
+  "math",
+  "semantics",
+  "mrow",
+  "mi",
+  "mo",
+  "mn",
+  "msup",
+  "msub",
+  "msubsup",
+  "mfrac",
+  "msqrt",
+  "mroot",
+  "mover",
+  "munder",
+  "munderover",
+  "mtable",
+  "mtr",
+  "mtd",
+  "mtext",
+  "mspace",
+  "mpadded",
+  "menclose",
+  "mstyle",
+  "mphantom",
+  "merror",
+  "mmultiscripts",
+  "mprescripts",
+  "none",
+  "annotation",
 ];
 
 const MAX_MARKDOWN_BYTES = 2 * 1024 * 1024;
 const MAX_FRONTMATTER_BYTES = 16 * 1024;
 const MAX_SVG_BYTES = 256 * 1024;
+const MAX_MERMAID_BYTES = 32 * 1024;
+const MAX_PLOT_BYTES = 128 * 1024;
+const MAX_BOARD_ROWS = 6;
 
 const commonAttributes = [
   "className",
@@ -186,6 +242,7 @@ const commonAttributes = [
   "lang",
   "ariaLabel",
   "ariaLabelledBy",
+  "ariaDescribedBy",
   "ariaCurrent",
   "ariaControls",
   "ariaSelected",
@@ -201,6 +258,22 @@ const commonAttributes = [
   "dataAudioSrc",
   "dataAudioIndex",
   "dataAudioPlayer",
+  "dataFootnotes",
+  "dataFootnoteRef",
+  "dataFootnoteBackref",
+  "dataFootnoteBackrefs",
+  "dataMermaid",
+  "dataMermaidCanvas",
+  "dataMermaidSource",
+  "dataMermaidTitle",
+  "dataMermaidDescription",
+  "dataPlot",
+  "dataRendererHeading",
+  "dataBoardColumns",
+  "dataPanelX",
+  "dataPanelY",
+  "dataPanelW",
+  "dataPanelH",
 ];
 
 const svgAttributeNames = [
@@ -257,6 +330,7 @@ const sanitizeSchema = {
   attributes: {
     ...defaultSchema.attributes,
     "*": commonAttributes,
+    span: [...commonAttributes, "style"],
     section: [...commonAttributes],
     a: [...commonAttributes, "href", "download"],
     img: [...commonAttributes, "src", "alt", "width", "height", "loading", "decoding"],
@@ -264,6 +338,10 @@ const sanitizeSchema = {
     input: [...commonAttributes, "type", "disabled", "checked"],
     details: [...commonAttributes, "open"],
     audio: [...commonAttributes, "controls", "preload", "src"],
+    q: [...commonAttributes, "cite"],
+    time: [...commonAttributes, "dateTime"],
+    math: [...commonAttributes, "xmlns", "display"],
+    annotation: [...commonAttributes, "encoding"],
     table: [...commonAttributes],
     ol: [...commonAttributes],
     ul: [...commonAttributes],
@@ -298,7 +376,7 @@ function fail(message: string, node?: Node): never {
 }
 
 function textContent(node: Node): string {
-  if (node.type === "text" || node.type === "inlineCode" || node.type === "code") return node.value ?? "";
+  if (["text", "inlineCode", "code", "inlineMath", "math"].includes(node.type)) return node.value ?? "";
   return (node.children ?? []).map(textContent).join("");
 }
 
@@ -361,7 +439,7 @@ function parseFenceInfo(meta: string | null | undefined, node: Node): Record<str
   if (!raw.startsWith("{") || !raw.endsWith("}")) fail("fence の属性は {key=\"value\"} 形式で指定してください", node);
   const body = raw.slice(1, -1).trim();
   const attrs: Record<string, string> = {};
-  const pattern = /([a-z][a-z0-9-]*)="([^"\\]*(?:\\.[^"\\]*)*)"/gy;
+  const pattern = /([a-z][A-Za-z0-9-]*)="([^"\\]*(?:\\.[^"\\]*)*)"/gy;
   let cursor = 0;
   while (cursor < body.length) {
     while (/\s/.test(body[cursor] ?? "")) cursor += 1;
@@ -488,6 +566,162 @@ function renderSvg(value: string, meta: string | null | undefined, node: Node, i
   };
 }
 
+type MermaidInfo = {
+  title: string;
+  description: string;
+};
+
+function parseMermaidInfo(value: string, meta: string | null | undefined, node: Node): MermaidInfo {
+  const attrs = parseFenceInfo(meta, node);
+  for (const key of Object.keys(attrs)) if (!["title", "description"].includes(key)) fail(`Mermaid fence の属性 ${key} は許可されていません`, node);
+  if (/%%\s*\{[\s\S]*?\}%%/i.test(value)) fail("Mermaid の init/initialize/config directive は許可されていません", node);
+  if (/(^|\n)\s*(?:click|href|callback)\b/i.test(value)) fail("Mermaid の外部遷移／callback は許可されていません", node);
+  const title = attrs.title || "Mermaid diagram";
+  const description = attrs.description || "Mermaid 記法から生成された図解です。";
+  ensureLength(value.trim(), "Mermaid のソース", 1, MAX_MERMAID_BYTES, node);
+  ensureLength(title, "Mermaid の title", 1, 120, node);
+  ensureLength(description, "Mermaid の description", 1, 240, node);
+  return { title, description };
+}
+
+type PlotDatum = { x: string; y: number };
+type PlotInfo = { type: "bar" | "line" | "scatter"; title: string; xLabel: string; yLabel: string; data: PlotDatum[] };
+
+function parsePlot(value: string, meta: string | null | undefined, node: Node): PlotInfo {
+  const attrs = parseFenceInfo(meta, node);
+  for (const key of Object.keys(attrs)) if (!["type", "title", "xLabel", "yLabel"].includes(key)) fail(`plot fence の属性 ${key} は許可されていません`, node);
+  const type = attrs.type || "line";
+  if (!allowedPlotTypes.has(type)) fail("plot の type は bar、line、scatter のいずれかです", node);
+  const data: PlotDatum[] = [];
+  for (const line of value.split(/\r?\n/).map((item) => item.trim()).filter(Boolean)) {
+    let item: unknown;
+    try {
+      item = JSON.parse(line);
+    } catch {
+      fail("plot fence は x と y を持つJSON Linesで指定してください", node);
+    }
+    if (!item || typeof item !== "object" || Array.isArray(item)) fail("plot の各行はJSONオブジェクトで指定してください", node);
+    const record = item as Record<string, unknown>;
+    if (Object.keys(record).sort().join(",") !== "x,y" || typeof record.x !== "string" || typeof record.y !== "number" || !Number.isFinite(record.y)) {
+      fail("plot の各行は {\"x\":文字列,\"y\":数値} だけを持つ必要があります", node);
+    }
+    ensureLength(record.x, "plot の x", 1, 80, node);
+    data.push({ x: record.x, y: record.y });
+  }
+  if (data.length < 2 || data.length > 24) fail("plot のデータは2〜24行で指定してください", node);
+  return {
+    type: type as PlotInfo["type"],
+    title: attrs.title || "データプロット",
+    xLabel: attrs.xLabel || "",
+    yLabel: attrs.yLabel || "",
+    data,
+  };
+}
+
+function plotText(value: number): string {
+  return new Intl.NumberFormat("ja-JP", { maximumFractionDigits: 2 }).format(value);
+}
+
+function renderPlot(value: string, meta: string | null | undefined, node: Node, index: number): HastNode {
+  const plot = parsePlot(value, meta, node);
+  const width = 720;
+  const height = 360;
+  const left = 72;
+  const right = 24;
+  const top = 48;
+  const bottom = 64;
+  const chartWidth = width - left - right;
+  const chartHeight = height - top - bottom;
+  const values = plot.data.map((item) => item.y);
+  const rawMin = Math.min(...values);
+  const rawMax = Math.max(...values);
+  const padding = rawMin === rawMax ? Math.max(1, Math.abs(rawMin) * 0.1) : (rawMax - rawMin) * 0.1;
+  const min = rawMin - padding;
+  const max = rawMax + padding;
+  const xAt = (position: number): number => left + (plot.data.length === 1 ? chartWidth / 2 : (position / (plot.data.length - 1)) * chartWidth);
+  const yAt = (valueAt: number): number => top + ((max - valueAt) / (max - min)) * chartHeight;
+  const titleId = `plot-${index}-title`;
+  const descriptionId = `plot-${index}-description`;
+  const grid = Array.from({ length: 5 }, (_, gridIndex) => {
+    const valueAt = max - ((max - min) * gridIndex) / 4;
+    const y = yAt(valueAt);
+    return [
+      makeElement("line", { className: ["mdx-plot-grid"], x1: left, y1: y, x2: width - right, y2: y }),
+      makeElement("text", { className: ["mdx-plot-axis-label"], x: left - 10, y: y + 4, textAnchor: "end" }, [makeText(plotText(valueAt))]),
+    ];
+  }).flat();
+  const xLabels = plot.data.map((item, itemIndex) => {
+    const x = xAt(itemIndex);
+    return makeElement("text", { className: ["mdx-plot-axis-label", "mdx-plot-x-label"], x, y: height - 28, textAnchor: "middle" }, [makeText(item.x)]);
+  });
+  const zeroY = rawMin <= 0 && rawMax >= 0 ? yAt(0) : height - bottom;
+  const axis = [
+    makeElement("line", { className: ["mdx-plot-axis"], x1: left, y1: top, x2: left, y2: height - bottom }),
+    makeElement("line", { className: ["mdx-plot-axis"], x1: left, y1: zeroY, x2: width - right, y2: zeroY }),
+  ];
+  const marks: HastNode[] = [];
+  if (plot.type === "line" || plot.type === "scatter") {
+    if (plot.type === "line") {
+      const path = plot.data.map((item, itemIndex) => `${itemIndex ? "L" : "M"}${xAt(itemIndex).toFixed(2)} ${yAt(item.y).toFixed(2)}`).join(" ");
+      marks.push(makeElement("path", { className: ["mdx-plot-line"], d: path }));
+    }
+    for (const [itemIndex, item] of plot.data.entries()) marks.push(makeElement("circle", { className: ["mdx-plot-point"], cx: xAt(itemIndex), cy: yAt(item.y), r: plot.type === "line" ? 4 : 6 }));
+  } else {
+    const slot = chartWidth / plot.data.length;
+    const barWidth = Math.min(48, slot * 0.68);
+    for (const [itemIndex, item] of plot.data.entries()) {
+      const x = left + slot * itemIndex + (slot - barWidth) / 2;
+      const y = yAt(item.y);
+      const barTop = Math.min(y, zeroY);
+      marks.push(makeElement("rect", { className: ["mdx-plot-bar"], x, y: barTop, width: barWidth, height: Math.max(1, Math.abs(zeroY - y)), rx: 4 }));
+    }
+  }
+  const description = `${plot.title}。${plot.data.length}件のデータを${plot.type}形式で表示しています。`;
+  const svg = makeElement("svg", {
+    className: ["mdx-plot-svg"],
+    viewBox: `0 0 ${width} ${height}`,
+    role: "img",
+    ariaLabelledBy: `user-content-${titleId} user-content-${descriptionId}`,
+  }, [
+    makeElement("title", { id: titleId }, [makeText(plot.title)]),
+    makeElement("desc", { id: descriptionId }, [makeText(description)]),
+    ...grid,
+    ...axis,
+    ...marks,
+    ...xLabels,
+    ...(plot.xLabel ? [makeElement("text", { className: ["mdx-plot-axis-title"], x: left + chartWidth / 2, y: height - 4, textAnchor: "middle" }, [makeText(plot.xLabel)])] : []),
+    ...(plot.yLabel ? [makeElement("text", { className: ["mdx-plot-axis-title"], x: 16, y: top + chartHeight / 2, textAnchor: "middle", transform: `rotate(-90 16 ${top + chartHeight / 2})` }, [makeText(plot.yLabel)])] : []),
+  ]);
+  return makeElement("figure", { className: ["mdx-plot"], dataComponent: "plot" }, [
+    makeElement("figcaption", {}, [makeText(plot.title)]),
+    svg,
+    makeElement("details", { className: ["mdx-plot-data"] }, [
+      makeElement("summary", {}, [makeText("データを表示")]),
+      makeElement("pre", {}, [makeElement("code", { className: ["language-json"] }, [makeText(value.trim())])]),
+    ]),
+  ]);
+}
+
+function renderMermaid(value: string, meta: string | null | undefined, node: Node): HastNode {
+  const info = parseMermaidInfo(value, meta, node);
+  return makeElement("figure", {
+    className: ["mdx-mermaid"],
+    dataComponent: "mermaid",
+    dataMermaid: "true",
+    dataMermaidTitle: info.title,
+    dataMermaidDescription: info.description,
+  }, [
+    makeElement("figcaption", {}, [makeText(info.title)]),
+    makeElement("div", { className: ["mdx-mermaid-canvas"], dataMermaidCanvas: "true" }, [
+      makeElement("pre", {}, [makeElement("code", { className: ["language-mermaid"], dataMermaidSource: "true" }, [makeText(value.trim())])]),
+    ]),
+    makeElement("details", { className: ["mdx-diagram-source"] }, [
+      makeElement("summary", {}, [makeText("Mermaidソースを表示")]),
+      makeElement("pre", {}, [makeElement("code", { className: ["language-mermaid"] }, [makeText(value.trim())])]),
+    ]),
+  ]);
+}
+
 function makeText(value: string): HastNode {
   return { type: "text", value };
 }
@@ -523,7 +757,7 @@ function createHandlers() {
         if (values.title) ensureLength(values.title, "callout の title", 1, 80, node);
         return makeElement("aside", { className: ["mdx-callout", `is-${values.kind}`], dataComponent: "callout", role: "note" }, [
           makeElement("p", { className: ["mdx-callout-kind"] }, [makeText(values.kind)]),
-          ...(values.title ? [makeElement("h3", {}, [makeText(values.title)])] : []),
+          ...(values.title ? [makeElement("h3", { dataRendererHeading: "true" }, [makeText(values.title)])] : []),
           makeElement("div", { className: ["mdx-callout-body"] }, children),
         ]);
       }
@@ -532,7 +766,7 @@ function createHandlers() {
         ensureLength(values.label, "metrics の label", 1, 80, node);
         if (!["2", "3"].includes(values.columns)) fail("metrics の columns は 2 または 3 です", node);
         return makeElement("section", { className: ["mdx-metrics", `columns-${values.columns}`], dataComponent: "metrics", ariaLabel: values.label }, [
-          makeElement("h3", {}, [makeText(values.label)]),
+          makeElement("h3", { dataRendererHeading: "true" }, [makeText(values.label)]),
           makeElement("dl", {}, children),
         ]);
       }
@@ -541,7 +775,7 @@ function createHandlers() {
         if (!/^[a-z][a-z0-9-]{0,47}$/.test(values.id)) fail("tabs の id が不正です", node);
         ensureLength(values.label, "tabs の label", 1, 80, node);
         return makeElement("section", { className: ["mdx-tabs"], dataComponent: "tabs", dataTabsId: values.id, ariaLabel: values.label }, [
-          makeElement("h3", { className: ["visually-hidden"] }, [makeText(values.label)]),
+          makeElement("h3", { className: ["visually-hidden"], dataRendererHeading: "true" }, [makeText(values.label)]),
           makeElement("div", { className: ["mdx-tab-list"], role: "tablist", ariaLabel: values.label }),
           makeElement("div", { className: ["mdx-tab-panels"] }, children),
         ]);
@@ -558,6 +792,34 @@ function createHandlers() {
         if (!["true", "false"].includes(values.open)) fail("details の open は true または false です", node);
         return makeElement("details", { className: ["mdx-details"], open: values.open === "true", dataComponent: "details" }, [
           makeElement("summary", {}, [makeText(values.summary)]),
+          ...children,
+        ]);
+      }
+      if (node.name === "board") {
+        const values = directiveAttrs(node, "board", ["label", "columns"], ["label", "columns"]);
+        ensureLength(values.label, "board の label", 1, 80, node);
+        if (!["2", "3", "4"].includes(values.columns)) fail("board の columns は 2〜4 です", node);
+        return makeElement("section", { className: ["mdx-board", `columns-${values.columns}`], dataComponent: "board", dataBoardColumns: values.columns, ariaLabel: values.label }, [
+          makeElement("h3", { dataRendererHeading: "true" }, [makeText(values.label)]),
+          makeElement("div", { className: ["mdx-board-grid"] }, children),
+        ]);
+      }
+      if (node.name === "panel") {
+        const values = directiveAttrs(node, "panel", ["title", "x", "y", "w", "h"], ["title", "x", "y"]);
+        ensureLength(values.title, "panel の title", 1, 80, node);
+        const x = parseGridInteger(values.x, "panel の x", 1, 4, node);
+        const y = parseGridInteger(values.y, "panel の y", 1, MAX_BOARD_ROWS, node);
+        const w = parseGridInteger(values.w ?? "1", "panel の w", 1, 4, node);
+        const h = parseGridInteger(values.h ?? "1", "panel の h", 1, MAX_BOARD_ROWS, node);
+        return makeElement("article", {
+          className: ["mdx-board-panel", `mdx-panel-x${x}-w${w}`, `mdx-panel-y${y}-h${h}`],
+          dataComponent: "panel",
+          dataPanelX: String(x),
+          dataPanelY: String(y),
+          dataPanelW: String(w),
+          dataPanelH: String(h),
+        }, [
+          makeElement("h4", { dataRendererHeading: "true" }, [makeText(values.title)]),
           ...children,
         ]);
       }
@@ -579,11 +841,12 @@ function createHandlers() {
     },
     code(state: any, node: Node): HastNode {
       const lang = (node.lang ?? "").toLowerCase();
-      if (lang === "mermaid") fail("mermaid fence は MVP では許可されていません", node);
       if (lang === "svg") {
         svgIndex += 1;
         return renderSvg(node.value ?? "", node.meta, node, svgIndex);
       }
+      if (lang === "mermaid") return renderMermaid(node.value ?? "", node.meta, node);
+      if (lang === "plot") return renderPlot(node.value ?? "", node.meta, node, svgIndex += 1);
       if (lang === "audio") {
         const audio = parseAudio(node.value ?? "", node);
         return makeElement("figure", { className: ["mdx-audio"], dataComponent: "audio", dataAudio: "true" }, [
@@ -600,12 +863,49 @@ function createHandlers() {
   };
 }
 
+const rawHtmlAllowedAttributes = new Map<string, Set<string>>([
+  ["abbr", new Set(["title"])],
+  ["q", new Set(["cite"])],
+  ["span", new Set(["title"])],
+  ["time", new Set(["dateTime"])],
+]);
+const rawHtmlAllowedTags = new Set(["abbr", "cite", "del", "em", "ins", "kbd", "mark", "q", "s", "samp", "small", "span", "strong", "sub", "sup", "time", "u", "var", "br"]);
+
+function validateRawHtml(value: string, node: Node): void {
+  const parsed = fromHtml(value, { fragment: true }) as unknown as HastNode;
+  const visit = (current: HastNode): void => {
+    if (current.type !== "element") {
+      for (const child of current.children ?? []) visit(child);
+      return;
+    }
+    if (!current.tagName || !rawHtmlAllowedTags.has(current.tagName)) fail(`raw HTML の要素 ${current.tagName ?? ""} は許可されていません`, node);
+    const allowedAttributes = rawHtmlAllowedAttributes.get(current.tagName) ?? new Set<string>();
+    for (const [key, attribute] of Object.entries(current.properties ?? {})) {
+      if (key.toLowerCase().startsWith("on") || key === "style" || key === "srcDoc" || !allowedAttributes.has(key)) {
+        fail(`raw HTML の属性 ${key} は許可されていません`, node);
+      }
+      if (typeof attribute === "string" && /(?:javascript|vbscript|data):/i.test(attribute)) fail(`raw HTML の属性 ${key} に危険なURLがあります`, node);
+    }
+    for (const child of current.children ?? []) visit(child);
+  };
+  visit(parsed);
+}
+
 type ValidationState = {
   tabIds: Set<string>;
+  mermaidSources: string[];
 };
 
+function parseGridInteger(value: string, label: string, min: number, max: number, node: Node): number {
+  if (!/^[1-9]\d*$/.test(value)) fail(`${label} は正の整数で指定してください`, node);
+  const number = Number(value);
+  if (!Number.isSafeInteger(number) || number < min || number > max) fail(`${label} は ${min}〜${max} の範囲で指定してください`, node);
+  return number;
+}
+
 function validateNode(node: Node, context: string, headings: Node[], assets: string[], state: ValidationState): void {
-  if (node.type === "html") fail("raw HTML は公開対象レポートでは許可されていません", node);
+  if (node.type === "html") validateRawHtml(node.value ?? "", node);
+  if (["inlineMath", "math"].includes(node.type)) ensureLength(node.value ?? "", "数式", 1, 64 * 1024, node);
   if (node.type === "heading") {
     if (context !== "root") fail("directive の内部に見出しは置けません", node);
     headings.push(node);
@@ -620,24 +920,33 @@ function validateNode(node: Node, context: string, headings: Node[], assets: str
     if (lang === "svg" && new TextEncoder().encode(node.value ?? "").byteLength > MAX_SVG_BYTES) {
       fail("SVG fence は256 KiB以下で指定してください", node);
     }
+    if (lang === "mermaid") {
+      if (new TextEncoder().encode(node.value ?? "").byteLength > MAX_MERMAID_BYTES) fail("Mermaid fence は32 KiB以下で指定してください", node);
+      parseMermaidInfo(node.value ?? "", node.meta, node);
+      state.mermaidSources.push(node.value ?? "");
+      if (state.mermaidSources.length > 12) fail("一つのレポートに置ける Mermaid は12個までです", node);
+    }
+    if (lang === "plot") {
+      if (new TextEncoder().encode(node.value ?? "").byteLength > MAX_PLOT_BYTES) fail("plot fence は128 KiB以下で指定してください", node);
+      parsePlot(node.value ?? "", node.meta, node);
+    }
     if (lang === "audio") {
       if (context === "details") fail("details の内部に audio fence は置けません", node);
       const audio = parseAudio(node.value ?? "", node);
       assets.push(...audio.tracks.map((track) => track.src));
     }
     if (lang === "svg") renderSvg(node.value ?? "", node.meta, node, 999);
-    if (lang === "mermaid") fail("mermaid fence は MVP では許可されていません", node);
   }
   if (["containerDirective", "leafDirective"].includes(node.type)) {
     if (!node.name || !allowedDirectiveNames.has(node.name)) fail(`未知の directive ${node.name ?? ""}`, node);
     const attrs = node.attributes ?? {};
     if (new Set(Object.keys(attrs)).size !== Object.keys(attrs).length) fail(`directive ${node.name} の属性が重複しています`, node);
-    if (node.name === "callout" && !["root", "tab", "details"].includes(context)) fail("callout はこの位置に置けません", node);
-    if (node.name === "metrics" && !["root", "callout", "tab", "details"].includes(context)) fail("metrics はこの位置に置けません", node);
+    if (node.name === "callout" && !["root", "tab", "details", "board", "panel"].includes(context)) fail("callout はこの位置に置けません", node);
+    if (node.name === "metrics" && !["root", "callout", "tab", "details", "board", "panel"].includes(context)) fail("metrics はこの位置に置けません", node);
     if (node.name === "metric" && context !== "metrics") fail("metric は metrics の直下に置いてください", node);
     if (node.name === "tabs" && context !== "root") fail("tabs は本文直下に置いてください", node);
     if (node.name === "tab" && context !== "tabs") fail("tab は tabs の直下に置いてください", node);
-    if (node.name === "details" && !["root", "callout", "tab"].includes(context)) fail("details はこの位置に置けません", node);
+    if (node.name === "details" && !["root", "callout", "tab", "board", "panel"].includes(context)) fail("details はこの位置に置けません", node);
     if (node.name === "callout" && context === "callout") fail("callout の入れ子は許可されていません", node);
     if (node.name === "tabs" && context === "tab") fail("tabs の入れ子は許可されていません", node);
     if (node.name === "details" && context === "details") fail("details の入れ子は許可されていません", node);
@@ -662,6 +971,39 @@ function validateNode(node: Node, context: string, headings: Node[], assets: str
         fail("metrics は metric を2〜6個だけ含めてください", node);
       }
     }
+    if (node.name === "board") {
+      if (!["root", "callout", "tab", "details"].includes(context)) fail("board はこの位置に置けません", node);
+      const values = requireAttrs({ ...node, name: "board" }, ["label", "columns"], ["label", "columns"]);
+      if (!["2", "3", "4"].includes(values.columns)) fail("board の columns は 2〜4 です", node);
+      const columns = Number(values.columns);
+      const panels = node.children ?? [];
+      if (panels.length < 1 || panels.length > 12 || panels.some((child) => child.type !== "containerDirective" || child.name !== "panel")) {
+        fail("board は panel を1〜12個だけ直下に含めてください", node);
+      }
+      const occupied = new Set<string>();
+      for (const panel of panels) {
+        const panelValues = requireAttrs({ ...panel, name: "panel" }, ["title", "x", "y", "w", "h"], ["title", "x", "y"]);
+        const x = parseGridInteger(panelValues.x, "panel の x", 1, columns, panel);
+        const y = parseGridInteger(panelValues.y, "panel の y", 1, MAX_BOARD_ROWS, panel);
+        const w = parseGridInteger(panelValues.w ?? "1", "panel の w", 1, columns, panel);
+        const h = parseGridInteger(panelValues.h ?? "1", "panel の h", 1, MAX_BOARD_ROWS, panel);
+        if (x + w - 1 > columns || y + h - 1 > MAX_BOARD_ROWS) fail("panel が board の範囲を超えています", panel);
+        for (let row = y; row < y + h; row += 1) for (let column = x; column < x + w; column += 1) {
+          const cell = `${row}:${column}`;
+          if (occupied.has(cell)) fail("board 内の panel が重なっています", panel);
+          occupied.add(cell);
+        }
+      }
+    }
+    if (node.name === "panel") {
+      if (context !== "board") fail("panel は board の直下に置いてください", node);
+      const values = requireAttrs({ ...node, name: "panel" }, ["title", "x", "y", "w", "h"], ["title", "x", "y"]);
+      ensureLength(values.title, "panel の title", 1, 80, node);
+      parseGridInteger(values.x, "panel の x", 1, 4, node);
+      parseGridInteger(values.y, "panel の y", 1, MAX_BOARD_ROWS, node);
+      parseGridInteger(values.w ?? "1", "panel の w", 1, 4, node);
+      parseGridInteger(values.h ?? "1", "panel の h", 1, MAX_BOARD_ROWS, node);
+    }
   }
   const children = node.children ?? [];
   for (let index = 0; index < children.length; index += 1) {
@@ -677,10 +1019,11 @@ function validateNode(node: Node, context: string, headings: Node[], assets: str
   }
 }
 
-function validateStructure(tree: Node, frontmatter: ReportFrontmatter): { title: string; headings: string[]; assets: string[] } {
+function validateStructure(tree: Node, frontmatter: ReportFrontmatter): { title: string; headings: string[]; assets: string[]; mermaidSources: string[] } {
   const headings: Node[] = [];
   const assets: string[] = [];
-  validateNode(tree, "root", headings, assets, { tabIds: new Set() });
+  const state: ValidationState = { tabIds: new Set(), mermaidSources: [] };
+  validateNode(tree, "root", headings, assets, state);
   const h1 = headings.filter((heading) => heading.depth === 1);
   if (h1.length !== 1 || tree.children?.find((node) => node.type !== "yaml")?.type !== "heading") fail("front matter 直後にレベル1見出しを一つだけ置いてください");
   let previousDepth = 0;
@@ -691,7 +1034,7 @@ function validateStructure(tree: Node, frontmatter: ReportFrontmatter): { title:
   }
   const slugger = new GithubSlugger();
   const headingSlugs = headings.map((heading) => slugger.slug(childrenText(heading)));
-  return { title: childrenText(h1[0]), headings: headingSlugs, assets: assets.filter(Boolean) };
+  return { title: childrenText(h1[0]), headings: headingSlugs, assets: assets.filter(Boolean), mermaidSources: state.mermaidSources };
 }
 
 function baseUrl(sourceUrl: string): URL {
@@ -703,7 +1046,7 @@ function baseUrl(sourceUrl: string): URL {
 }
 
 function createParser() {
-  return unified().use(remarkParse).use(remarkGfm).use(remarkFrontmatter, ["yaml"]).use(remarkDirective);
+  return unified().use(remarkParse).use(remarkGfm, { singleTilde: false }).use(remarkMath).use(remarkFrontmatter, ["yaml"]).use(remarkDirective);
 }
 
 function parseTree(markdown: string): Node {
@@ -737,7 +1080,7 @@ function resolveReference(raw: string, sourceUrl: string, kind: "image" | "audio
   }
   const sameOrigin = resolved.protocol === source.protocol && resolved.origin === source.origin;
   if (!sameOrigin) {
-    if (kind === "link" && (resolved.protocol === "https:" || resolved.protocol === "mailto:")) return resolved.href;
+    if (kind === "link" && ["https:", "http:", "mailto:"].includes(resolved.protocol)) return resolved.href;
     fail(`${kind} の外部 URL は許可されていません`);
   }
   if (resolved.search || (kind !== "link" && resolved.hash)) fail(`${kind} のローカル URL に query / fragment は指定できません`);
@@ -786,7 +1129,7 @@ function resolveHastUrls(tree: HastNode, options: ParseOptions): void {
   });
 }
 
-export function inspectMarkdown(markdown: string): { frontmatter: ReportFrontmatter; title: string; headings: string[]; assets: string[] } {
+export function inspectMarkdown(markdown: string): { frontmatter: ReportFrontmatter; title: string; headings: string[]; assets: string[]; mermaidSources: string[] } {
   const tree = parseTree(markdown);
   const yamlNode = tree.children?.[0];
   if (yamlNode?.type === "yaml" && new TextEncoder().encode(yamlNode.value ?? "").byteLength > MAX_FRONTMATTER_BYTES) {
@@ -805,12 +1148,22 @@ export async function parseMarkdown(markdown: string, options: ParseOptions): Pr
   }
   const frontmatter = parseFrontmatter(tree);
   const structure = validateStructure(tree, frontmatter);
-  const transformed = (await unified().use(remarkRehype as any, { handlers: createHandlers() }).run(tree as never)) as unknown as HastNode;
+  const transformed = (await unified()
+    .use(remarkRehype as any, { allowDangerousHtml: true, handlers: createHandlers() })
+    .use(rehypeRaw as any)
+    .use(rehypeKatex as any, {
+      output: "mathml",
+      throwOnError: true,
+      trust: false,
+      strict: "error",
+      maxExpand: 1000,
+    })
+    .run(tree as never)) as unknown as HastNode;
   resolveHastUrls(transformed, options);
   const clean = sanitize(transformed as never, sanitizeSchema as never) as unknown as HastNode;
   let headingIndex = 0;
   walkHast(clean, (node) => {
-    if (node.type === "element" && /^h[1-6]$/.test(node.tagName ?? "")) {
+    if (node.type === "element" && /^h[1-6]$/.test(node.tagName ?? "") && node.properties?.dataRendererHeading !== "true") {
       const slug = structure.headings[headingIndex++];
       if (slug) {
         node.properties ??= {};

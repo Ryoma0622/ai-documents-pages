@@ -74,13 +74,18 @@ const initial = await page.evaluate(() => ({
   title: document.title,
   h1: document.querySelector("#report-view h1")?.textContent,
   svg: Boolean(document.querySelector("#report-view svg[role=img] title")),
+  mermaid: Boolean(document.querySelector("#report-view [data-component=mermaid] svg[role=img]")),
+  mermaidStyleElements: document.querySelectorAll("#report-view [data-component=mermaid] svg style").length,
+  math: Boolean(document.querySelector("#report-view math")),
+  plot: Boolean(document.querySelector("#report-view [data-component=plot] svg")),
+  board: Boolean(document.querySelector("#report-view [data-component=board] [data-component=panel]")),
   audio: Boolean(document.querySelector("#report-view audio[controls]")),
   transcript: Boolean(document.querySelector("#report-view [data-component=audio] + details")),
   noAutoplay: [...document.querySelectorAll("#report-view audio")].every((audio) => !audio.autoplay && audio.paused),
   internalLink: document.querySelector("#report-view a[href^='?report=']")?.getAttribute("href"),
 }));
 if (!initial.title.includes("Markdown と HTML")) throw new Error("レポートの document.title が不正です");
-if (!initial.h1 || !initial.svg || !initial.audio || !initial.transcript || !initial.noAutoplay) throw new Error(`リッチ部品の表示または音声の初期状態が不正です: ${JSON.stringify(initial)}`);
+if (!initial.h1 || !initial.svg || !initial.mermaid || initial.mermaidStyleElements !== 0 || !initial.math || !initial.plot || !initial.board || !initial.audio || !initial.transcript || !initial.noAutoplay) throw new Error(`リッチ部品の表示または音声の初期状態が不正です: ${JSON.stringify(initial)}`);
 if (initial.internalLink !== "?report=markdown-html-hybrid-platform#%E7%B5%90%E8%AB%96") throw new Error(`内部レポートリンクが不正です: ${initial.internalLink}`);
 await page.locator("#report-view a[href^='?report=']").click();
 await waitForReport();

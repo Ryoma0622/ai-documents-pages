@@ -35,8 +35,13 @@ tags: []
 - `:::metrics{label="..." columns="2"}` と`::metric[...]` — 指標グループ
 - `::::tabs{id="..." label="..."}` と`:::tab[...]` — URLと同期するタブ
 - `:::details{summary="..." open="false"}` — ネイティブ折り畳み
+- `::::board{label="..." columns="2"}` と`:::panel[...]` — 座標付きの2次元レイアウト
 - `svg` fence — allowlist済みSVG。`title`、`description`、`viewBox`を必須とする
+- `mermaid` fence — Mermaidのフロー・シーケンス等。`title`、`description`を指定し、ビルド時に構文検証する
+- `plot` fence — JSON Linesの`x`／`y`をbar・line・scatterのSVGへ変換する
+- `$...$`／`$$...$$` — KaTeX-supported TeXをMathMLへ変換する数式
 - `audio` fence — `title`、`caption`、`src`、`label`。直後にtranscript用`details`を置く
 
-raw HTML、任意JavaScript、Mermaid、外部画像・音声、危険なSVGは受け付けません。
+CommonMarkとGFM（表、タスクリスト、脚注、自動リンク、打ち消し線、reference-style link等）は標準記法として扱います。
+任意のraw HTML、任意JavaScript、外部画像・音声、危険なSVGは受け付けません。raw HTMLは受動的なインライン要素に限ります。
 詳しい契約は[SPEC.md](./SPEC.md)を参照してください。

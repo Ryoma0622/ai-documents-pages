@@ -5,7 +5,12 @@ on:
     branches: [main]
     paths:
       - "applications/markdown-explainer/**"
-      - "researches/**/*.md"
+      - "article-summaries/**"
+      - "news/**"
+      - "note/**"
+      - "reading/**"
+      - "researches/**"
+      - "self-articles/**"
       - ".github/workflows/markdown-explainer-pages.yml"
   workflow_dispatch:
 
@@ -35,7 +40,7 @@ jobs:
         run: npm ci
       - name: Build Pages artifact
         working-directory: applications/markdown-explainer
-        run: npm run build
+        run: npm run check
       - name: Configure Pages
         uses: actions/configure-pages@v5
       - name: Upload Pages artifact

@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { cp, lstat, mkdir, open, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { dirname, extname, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
+import { JSDOM } from "jsdom";
 import { inspectMarkdown, isExplainerMarkdown, parseMarkdown } from "./parser";
 import { REPORT_ROOTS, type Manifest, type ManifestReport, type ReportRoot } from "./schema";
 
@@ -9,6 +10,40 @@ const appRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const repoRoot = resolve(appRoot, "../..");
 const publicRoot = join(appRoot, "public");
 const pageOrigin = "https://pages.invalid/";
+
+const dom = new JSDOM("<!doctype html><html><body></body></html>");
+function installGlobal(name: string, value: unknown): void {
+  const descriptor = Object.getOwnPropertyDescriptor(globalThis, name);
+  if (name === "navigator" && descriptor && !descriptor.writable && !descriptor.set) return;
+  Object.defineProperty(globalThis, name, {
+    configurable: true,
+    enumerable: descriptor?.enumerable ?? false,
+    writable: true,
+    value,
+  });
+}
+
+for (const [name, value] of Object.entries({
+  window: dom.window,
+  document: dom.window.document,
+  navigator: dom.window.navigator,
+  DOMParser: dom.window.DOMParser,
+  DocumentFragment: dom.window.DocumentFragment,
+  Element: dom.window.Element,
+  HTMLElement: dom.window.HTMLElement,
+  HTMLTemplateElement: dom.window.HTMLTemplateElement,
+  Node: dom.window.Node,
+  NodeFilter: dom.window.NodeFilter,
+  SVGElement: dom.window.SVGElement,
+})) installGlobal(name, value);
+const { default: mermaid } = await import("mermaid");
+
+mermaid.initialize({
+  startOnLoad: false,
+  securityLevel: "strict",
+  deterministicIds: true,
+  htmlLabels: false,
+});
 
 type Candidate = {
   absolutePath: string;
@@ -152,6 +187,17 @@ async function collectCandidates(): Promise<Candidate[]> {
   return candidates;
 }
 
+async function validateMermaidSources(sources: string[], source: string): Promise<void> {
+  for (const [index, mermaidSource] of sources.entries()) {
+    try {
+      await mermaid.parse(mermaidSource);
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      throw new Error(`Mermaid の構文が不正です（${source} の ${index + 1}個目）: ${detail}`);
+    }
+  }
+}
+
 async function main(): Promise<void> {
   await rm(publicRoot, { recursive: true, force: true });
   await mkdir(publicRoot, { recursive: true });
@@ -159,6 +205,8 @@ async function main(): Promise<void> {
   const reportMap = new Map(candidates.map((candidate) => [candidate.source, { id: candidate.report.id, source: candidate.source }]));
 
   for (const candidate of candidates) {
+    const inspected = inspectMarkdown(candidate.markdown);
+    await validateMermaidSources(inspected.mermaidSources, candidate.source);
     await parseMarkdown(candidate.markdown, { sourceUrl: sourceUrl(candidate.source), reports: reportMap, validateLinks: true });
     const target = join(publicRoot, candidate.source);
     await mkdir(dirname(target), { recursive: true });

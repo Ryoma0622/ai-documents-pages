@@ -1,6 +1,6 @@
 # GitHub Pages 対応ハイブリッド Markdown レポート基盤 MVP 仕様
 
-- 状態: Implemented MVP
+- 状態: Implemented extended PoC
 - 対象: `applications/markdown-explainer/`
 - スコープ: 設計・実装（MVP）
 - 正本: リポジトリ内の Markdown ファイル
@@ -28,7 +28,7 @@ MVP は、GitHub Pages に配置した単一の `index.html` とブラウザ Jav
 ### 1.2 目標
 
 1. Markdown の可搬性、GitHub 上の可読性、行単位の Git diff、エージェント入力としての簡潔さを維持する。
-2. HTML の視覚密度、セマンティック構造、SVG、指標表示、タブ、折り畳み、音声といったレビュー体験を、少数の宣言的プリミティブで提供する。
+2. HTML の視覚密度、セマンティック構造、SVG、指標表示、タブ、折り畳み、音声、数式、Mermaid、2次元レイアウトといったレビュー体験を、少数の宣言的プリミティブで提供する。
 3. GitHub Pages のプロジェクトサブパス上で、サーバーと URL rewrite に依存せず直接リンク、再読み込み、戻る／進むを成立させる。
 4. レポートソースを非信頼入力として扱い、任意スクリプト、外部埋め込み、危険な URL、危険な SVG を実行しない。
 5. 既存 Explainer Sites の Markdown ビューアと配信経路を変更せず、段階的に公開対象を選べるようにする。
@@ -133,8 +133,11 @@ GitHub Pages artifact
 ### 2.4 採用する実装モデル
 
 - ビルド: Vite の相対 base (`./`) による静的 bundle と Pages artifact 生成。
-- Markdown AST: `unified`、`remark-parse`、`remark-gfm`、`remark-frontmatter`、`remark-directive`。
-- HTML AST: `remark-rehype`、専用変換プラグイン、`rehype-sanitize`、`rehype-stringify`。
+- Markdown AST: `unified`、`remark-parse`、`remark-gfm`、`remark-frontmatter`、`remark-directive`、`remark-math`。
+- HTML AST: `remark-rehype`、`rehype-raw`、`rehype-katex`、専用変換 handler、`hast-util-sanitize`、`hast-util-to-html`。
+- 数式: KaTeX-supported TeX の `$...$`／`$$...$$` を MathML-only output へ変換し、inline style、外部 font、CDNへ依存しない。
+- Mermaid: `mermaid` の lockfile 固定版を準備時の構文検証とブラウザ描画に使い、`securityLevel: "strict"`、`htmlLabels: false`、`deterministicIds: true`を設定する。
+- 2次元: `board`／`panel` は座標を検証して CSS Grid へ変換し、`plot` は限定JSON LinesからSVGを生成する。
 - 見出し slug: `github-slugger` と同じ、文書単位で重複を連番化する規則。
 - 実装言語: ブラウザとビルドで共有できる TypeScript。
 - UI: フレームワークを導入せず、セマンティック HTML、CSS、最小の DOM イベント処理で構成する。
@@ -147,8 +150,8 @@ GitHub Pages artifact
 ### 3.1 基本文書
 
 ソースは UTF-8、LF の GFM とする。
-表、打ち消し線、タスクリスト、自動リンクを利用できる。
-出典には通常の reference-style link を使い、脚注構文は MVP の拡張対象にしない。
+CommonMark と GFM の標準語彙を利用できる。`remark-gfm` の `singleTilde: false` を使い、表、打ち消し線、タスクリスト、自動リンク、脚注、reference-style link、コード、画像、引用、順序付きリストを含む。
+出典には通常の reference-style link を使い、脚注も標準 GFM として扱う。
 
 文書は次の形を必須とする。
 
@@ -194,10 +197,11 @@ directive は `remark-directive` の generic directive 構文を使う。
 属性値は必ず二重引用符で囲み、未知の属性、重複属性、空の必須属性をエラーとする。
 directive 名は小文字固定とする。
 
-MVP が認識する directive は次の五つだけである。
+本 PoC が認識する directive は次のとおりである。
 
 - container directive: `callout`、`metrics`、`tabs`、`tab`、`details`
 - leaf directive: `metric`
+- 2次元 container directive: `board`、`panel`
 
 `tab` は `tabs` の直下、`metric` は `metrics` の直下でのみ有効とする。
 `tabs` の入れ子、`details` の入れ子、レベル1見出しを directive 内へ置くことは禁止する。
@@ -393,12 +397,101 @@ label: セキュリティと検証
 
 ### 3.9 通常の GFM とリッチ構文の関係
 
-- 見出し、段落、箇条書き、引用、表、コード、画像、リンク、強調は常に GFM を使う。
+- 見出し、段落、箇条書き、引用、表、コード、画像、リンク、強調、打ち消し線、タスクリスト、自動リンク、脚注、reference-style link、順序付きリストは常に CommonMark／GFM を使う。
 - custom directive は情報の構造と表示方法だけを加え、本文の主張を JavaScript データへ移さない。
 - reference-style link は通常の GFM として処理し、GitHub 上でもクリック可能に保つ。
-- 通常の code fence はコードとして表示する。`svg` と `audio` だけを実行可能な表示プリミティブとして扱う。
-- `mermaid` fence は MVP ではビルドエラーとし、図として表示されると誤認させない。
-- raw HTML ノードは、タグの種類にかかわらず公開対象レポートではビルドエラーとする。
+- 通常の code fence はコードとして表示する。`svg`、`mermaid`、`plot`、`audio`だけを定義済みの表示プリミティブとして扱う。
+- Markdown の正本には生成 HTML、MathML、Mermaid SVG、CSS Grid の計算結果を保存しない。
+- raw HTML は CommonMark の入力として解析するが、受動的なインライン要素の allowlist 以外をエラーとする。
+
+### 3.10 数式
+
+数式は `remark-math` で解析し、`rehype-katex`へ渡す。
+インラインは `$...$`、表示数式は `$$...$$` とする。
+KaTeX-supported TeX を対象とし、「完全な LaTeX」とは契約しない。
+
+変換オプションは次に固定する。
+
+```text
+output: "mathml"
+throwOnError: true
+trust: false
+strict: "error"
+maxExpand: 1000
+```
+
+入力は文書全体で2 MiB、単一数式で64 KiB以下とする。
+`trust: false`により、外部URL、HTML、危険なコマンドを実行する数式は拒否する。
+MathML要素と属性は sanitizer の専用 allowlist で再検証する。
+
+### 3.11 Mermaid fence
+
+Mermaid は次の形式で指定する。
+
+````markdown
+```mermaid {title="変換フロー" description="MarkdownをHTMLへ変換する流れ"}
+flowchart LR
+  A[Markdown] --> B[AST]
+  B --> C[HTML]
+```
+````
+
+`title` は任意なら既定値を使い、`description` とともに図の accessible name／description へ反映する。
+ソースはUTF-8で32 KiB以下、一つのレポートに12個までとする。
+`%%{init: ...}%%`、`click`、外部 `href`、callback は許可しない。
+
+ビルド時に lockfile 固定版の `mermaid.parse()`で構文を検証し、ブラウザでは `securityLevel: "strict"`、`htmlLabels: false`、`deterministicIds: true`で描画する。
+生成SVGは要素、属性、URL、styleを専用 allowlist で検査してからDOMへ挿入する。
+ソースは常に`details`で表示可能にし、図だけに意味を閉じ込めない。
+
+### 3.12 plot fence
+
+plot は自由形式のJavaScriptを許可しない限定データ記法である。
+
+````markdown
+```plot {type="line" title="進捗" xLabel="工程" yLabel="件数"}
+{"x":"収集","y":2}
+{"x":"検証","y":5}
+```
+````
+
+`type` は `bar`、`line`、`scatter` のいずれか、データはJSON Linesの2–24行とする。
+各行は `x`（1–80文字の文字列）と `y`（有限な数値）だけを持つ。
+レンダラーは決定的な `<figure>`、accessible SVG、表示元データの`details`を生成する。
+自由形式のchart DSL、式評価、データfetchは行わない。
+
+### 3.13 board／panel
+
+HTMLの2次元レイアウトは座標付きdirectiveで宣言する。
+
+````markdown
+::::board{label="責務" columns="3"}
+:::panel{title="正本" x="1" y="1" w="1" h="2"}
+Markdown本文。
+:::
+:::panel{title="表示" x="2" y="1"}
+HTML表示。
+:::
+::::
+````
+
+`board` の `columns` は2–4、panelは1–12個、行は最大6とする。
+panelの `title`、`x`、`y` は必須、`w` と `h` は省略時1である。
+座標はboardの範囲内、panel同士は重複なし、panelはboardの直下、source順はDOM順とする。
+出力は `<section>`、`<article>`、CSS Gridであり、画面幅640px以下ではpanelをsource順の一列へ積む。
+
+### 3.14 受動的 raw HTML
+
+任意HTMLではなく、次のインライン要素だけを許可する。
+
+```text
+abbr, cite, del, em, ins, kbd, mark, q, s, samp, small,
+span, strong, sub, sup, time, u, var, br
+```
+
+許可属性は `abbr[title]`、`q[cite]`、`span[title]`、`time[datetime]`だけとする。
+`class`、`id`、`style`、`data-*`、ARIA属性、見出し、画像、音声、button、form、script、SVGはsource raw HTMLから指定できない。
+これにより、sourceがrenderer所有のcomponentや見出しを偽装することを防ぐ。
 
 ## 4. レンダリングパイプライン
 
@@ -413,17 +506,17 @@ Node のマニフェスト生成とブラウザ描画は、同じ TypeScript mod
 2. **Markdown parse:** CommonMark を基礎に GFM、front matter、directive を mdast へ解析する。
 3. **文書検証:** front matter、単一 H1、見出し順序、未知 directive、入れ子、属性、fence を検証する。
 4. **プリミティブ変換:** 既知 directive と fence を専用 mdast node へ変換する。文字列を HTML として連結しない。
-5. **mdast → hast:** raw HTML を有効にせず、専用 handler で標準 HTML/SVG node を生成する。
+5. **mdast → hast:** 専用 handler で標準 HTML/SVG/MathML node を生成し、受動的 raw HTMLだけを `rehype-raw` で解釈する。
 6. **URL 解決:** リンク、画像、audio を Markdown 取得 URL を基準に正規化し、許可ポリシーを適用する。
 7. **見出し ID:** 見出しのプレーンテキストから GFM 互換 slug を生成し、重複は `-1`、`-2` の順に付ける。
-8. **sanitize:** 専用 `rehype-sanitize` schema で HTML/SVG 要素と属性を再検証する。
+8. **sanitize:** 専用 `hast-util-sanitize` schema で HTML/SVG/MathML 要素と属性を再検証する。
 9. **serialize:** サニタイズ済み HAST を HTML 文字列へ変換し、`template` element で fragment 化する。
 10. **commit:** 全工程が成功した場合だけ、既存 `<main>` を `replaceChildren` で置き換える。
-11. **enhance:** アプリ自身が生成した `data-component` にだけ、タブと音声のイベントを登録する。
+11. **enhance:** アプリ自身が生成した `data-component` にだけ、タブ、音声、Mermaidの描画を登録する。board／plot／数式はDOMとCSSだけで表示する。
 12. **state update:** `<title>`、`lang`、目次、URL、フォーカス、`aria-live` を更新する。
 
-`rehype-raw` は使わない。
-report source の HTML を DOM として解釈する経路を持たない。
+`rehype-raw` は受動的 raw HTMLの検証後に限って使う。
+report sourceのraw HTMLをそのままDOMへ挿入する経路は持たない。
 
 ### 4.2 出力する主なセマンティクス
 
@@ -435,6 +528,10 @@ report source の HTML を DOM として解釈する経路を持たない。
 | タブ | `<section>` + `role="tablist"` / `tab` / `tabpanel` |
 | 折り畳み | `<details><summary>` |
 | SVG | `<figure><svg role="img"><title><desc>…` |
+| Mermaid | `<figure>` + strict runtime SVG + source details |
+| 数式 | MathML（KaTeX-supported TeX） |
+| plot | accessible `<figure><svg>` + source data details |
+| board／panel | `<section>` + `<article>` + CSS Grid |
 | 音声 | `<figure><figcaption><audio>` + `<ol>` |
 | GFM 表 | `<div class="table-scroll" tabindex="0"><table>…` |
 
@@ -555,7 +652,7 @@ Markdown、front matter、directive 属性、SVG、リンク、画像名、音�
 
 ### 6.2 raw HTML とスクリプト
 
-- raw HTML、MDX JSX、`<script>`、event handler、inline style、custom element を report source から受け入れない。
+- 任意 raw HTML、MDX JSX、`<script>`、event handler、inline style、custom element を report source から受け入れない。受動的インライン要素の限定 allowlistだけを許可する。
 - report source から `<button>`、`<audio>`、`<details>` などを直接生成しない。これらは既知プリミティブの handler だけが生成する。
 - report source の文字列を `eval`、`Function`、`setTimeout(string)`、inline event 属性へ渡さない。
 - DOM 挿入は sanitize 後の fragment に限定する。
@@ -587,7 +684,7 @@ button, details, summary, audio
 - table cell: `colspan`、`rowspan`、`align`
 
 source 由来の class、id、`data-*`、style は許可しない。
-SVG は 3.7 節の別 allowlist を適用する。
+受動的 raw HTML の許可要素・属性は3.14節に固定する。SVG は3.7節、MathMLは3.10節、Mermaidの実行時SVGは専用の生成物 allowlist を適用する。
 
 ### 6.4 Content Security Policy
 
@@ -606,7 +703,7 @@ base-uri 'none';
 form-action 'none'
 ```
 
-inline script、inline style、CDN、web font、worker、frame は使わない。
+source由来のinline script／style、CDN、web font、worker、frame は使わない。Mermaidはライブラリ内部の一時的なstyle属性を使うため `style-src-attr 'unsafe-inline'` を限定的に設定するが、生成SVGからstyle要素・style属性を除去して挿入する。Mermaidの生成SVGも危険な要素・属性・URLを検査してから挿入する。
 テーマ初期化も同一 origin の外部 script とする。
 
 ### 6.5 外部遷移とプライバシー
@@ -633,6 +730,9 @@ inline script、inline style、CDN、web font、worker、frame は使わない�
 - コールアウトは kind 名とタイトルをテキストで示し、色やアイコンだけに依存しない。
 - 指標は `<dl>` の読み上げ順が視覚順と一致する。
 - 非装飾 SVG は title と description を持つ。重要な結論は SVG 内だけに置かない。
+- Mermaid は fence metadata を title／description として使い、source detailsを併設する。構文エラー時に空の図を表示しない。
+- 数式は MathML の意味構造を保持し、plot は title、軸ラベル、元データを持つ。
+- board はラベル付き section と panel title を持ち、狭い画面では source 順の読み上げ順を維持する。
 - audio は autoplay せず、ネイティブ controls、章名、現在章、ダウンロードリンク、全文トランスクリプトを持つ。
 - すべての画像は空でない `alt` を必須とする。装飾画像は MVP で許可しない。
 - focus ring を消さず、`outline: 2px solid var(--accent)` と offset を使う。
@@ -674,7 +774,7 @@ inline script、inline style、CDN、web font、worker、frame は使わない�
 - MVP は `applications/explainer-sites/serve.py`、既存 route、既存 Markdown renderer、既存 test、`sites.json` を変更しない。
 - 既存 `/docs/...` は FastAPI と MarkdownIt による server-rendered viewer のままとする。
 - 新アプリは Python sanitizer を import、移植、HTTP 経由利用しない。TypeScript の共有 parser をビルドとブラウザで使う。
-- 既存 viewer が許可する raw HTML と inline SVG は、新アプリでは許可しない。新アプリの公開対象は directive／fence 規約を満たす必要がある。
+- 既存 viewer が許可する raw HTML と inline SVG の挙動は引き継がない。新アプリは3.7節と3.14節の明示的な allowlistだけを許可する。
 - 新しい directive は既存 viewer ではリッチ component にならない。GitHub と既存 viewer で原文の意味を追えることをソース契約とし、表示 parity は MVP の要件にしない。
 - チャット、メモ、PWA、検索、favorites、Markdown copy、explainer companion mapping は新アプリへ統合しない。
 
@@ -694,7 +794,7 @@ MVP の導線は GitHub Pages の独立 URL とする。
 | Markdown が404または revision 不一致 | 対象レポートの取得エラー。キャッシュ済み本文を使わない |
 | front matter と manifest の ID が不一致 | 実行時検証エラー |
 | Markdown parse／directive validation 失敗 | 部分 DOM を表示せず、行・列付きエラー |
-| raw HTML、未知 directive、Mermaid | ビルド失敗。実行時にも拒否 |
+| 許可外 raw HTML、未知 directive、Mermaidの構文／禁止機能 | ビルド失敗。実行時にも拒否 |
 | 同名 heading | `slug`、`slug-1`、`slug-2` と決定的に採番 |
 | fragment が存在しない | 文書を表示するが自動スクロールせず、section 不在を status 表示 |
 | tabs／tab ID 重複 | ビルド失敗 |
@@ -714,13 +814,14 @@ MVP の導線は GitHub Pages の独立 URL とする。
 ### 10.1 単体テスト
 
 1. **front matter:** 正常値、未知キー、型違い、ID重複、日付、lang、tags、YAML alias、16 KiB 上限を検証する。
-2. **GFM:** 見出し、表、タスクリスト、打ち消し、reference-style link、コード fence の AST と HTML snapshot を検証する。
-3. **directive:** 各正常例、必須属性、未知属性、入れ子、個数上限、duplicate ID、未知 directive、Mermaid 拒否を検証する。
+2. **GFM:** 見出し、表、タスクリスト、打ち消し、脚注、autolink、reference-style link、コード fence、順序付きリストの AST と HTML snapshot を検証する。
+3. **directive:** 各正常例、必須属性、未知属性、入れ子、個数上限、duplicate ID、未知 directive、boardの範囲／重複を検証する。
 4. **audio:** 単一／複数 src、label 対応、transcript 隣接、拡張子、autoplay 不在、危険 URL を検証する。
 5. **SVG:** 正常要素と属性、title／description 注入、decorative、viewBox、XML error、script、style、foreignObject、image、use、event、外部 URL、`url(#id)` を検証する。
-6. **URL resolver:** Pages subpath、同一 report root、`..` 正規化、内部 report rewrite、fragment、全拒否 scheme を table-driven test にする。
-7. **sanitize:** 許可要素／属性 snapshot と XSS corpus を使い、実行可能 node と属性が0件であることを検証する。
-8. **manifest:** 同一入力の byte-for-byte 再現、ソート、revision、source path、非 opt-in 除外、symlink 拒否を検証する。
+6. **math／Mermaid／plot:** inline／display math、KaTeX error／trust、Mermaid構文、init／click拒否、図数／サイズ、plot JSON Lines、SVG accessible nameを検証する。
+7. **raw HTML／URL resolver:** 受動的要素だけを許可し、renderer componentの偽装を拒否する。Pages subpath、同一 report root、`..` 正規化、内部 report rewrite、fragment、全拒否 scheme を table-driven test にする。
+8. **sanitize:** 許可要素／属性 snapshot と XSS corpus を使い、実行可能 node と属性が0件であることを検証する。
+9. **manifest:** 同一入力の byte-for-byte 再現、ソート、revision、source path、非 opt-in 除外、symlink 拒否を検証する。
 
 ### 10.2 統合テスト
 
@@ -761,8 +862,8 @@ Pages artifact を `/ai-documents-pages/` のような project subpath で静的
 2. `explainer` 未指定の Markdown は artifact に入らない。
 3. 生成 artifact は `.nojekyll`、`index.html`、同梱 JS/CSS、`manifest.json`、選択済み Markdown／asset だけで動き、API server と CDN request を必要としない。
 4. GitHub Pages の project subpath で、ライブラリ、direct report URL、heading URL、tab URL、reload、back／forward が E2E を通る。
-5. 標準 GFM と、本仕様の callout、metrics、tabs、details、SVG fence、audio fence が fixture の期待 HTML／アクセシビリティ tree に一致する。
-6. report source に raw HTML、任意 JavaScript、Mermaid、未知 directive を書くと build が non-zero で停止し、無効 report を除外した artifact を作らない。
+5. 標準 CommonMark／GFM と、本仕様の callout、metrics、tabs、details、board／panel、SVG、Mermaid、math、plot、audio が fixture の期待 HTML／アクセシビリティ tree に一致する。
+6. report source に許可外 raw HTML、任意 JavaScript、Mermaidの禁止機能、未知 directiveを含めると build が non-zero で停止し、無効 report を除外した artifact を作らない。
 7. `javascript:`、`data:`、protocol-relative URL、path traversal、外部 image／audio、禁止 SVG、event handler を含む security fixture が build と runtime の両方で拒否される。
 8. 相対 image／audio は Markdown の source URL 基準で解決され、同じ report root 内の実在 asset だけが配信・表示される。
 9. 320–2560pxでページ横 overflow がなく、header は48–52pxの一行、本文幅は680–720px、操作領域は44px以上である。
@@ -795,10 +896,10 @@ Markdown 正本、既存 Explainer Sites、既存 route は変更されないた
 
 ## 13. 非目標
 
-MVP では次を実装しない。
+本 PoC では次を実装しない。
 
-- raw HTML、inline SVG、MDX、JSX、任意 JavaScript、任意 CSS、custom web component
-- Mermaid、Chart.js、D3、Three.js、MapLibre、数式レンダリング、syntax highlighting
+- 任意 raw HTML、MDX、JSX、任意 JavaScript、任意 CSS、custom web component
+- Chart.js、D3、Three.js、MapLibre、自由形式 chart DSL、syntax highlighting
 - report source からの iframe、動画、フォーム、input、外部 widget、外部 font、外部 image／audio
 - SVG の SMIL／CSS animation、`foreignObject`、外部参照、画像埋め込み
 - 自由形式 chart DSL、計算式評価、データ fetch、ライブ dashboard

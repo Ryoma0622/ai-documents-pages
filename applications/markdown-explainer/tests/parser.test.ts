@@ -50,9 +50,30 @@ test("rich Markdown is converted to semantic HTML", async () => {
 補足本文。
 :::
 
+::::board{label="構造" columns="2"}
+:::panel{title="入力" x="1" y="1" w="1" h="2"}
+Markdown。
+:::
+:::panel{title="出力" x="2" y="1"}
+HTML。
+:::
+::::
+
+## After component
+
 | A | B |
 | --- | --- |
 | 1 | 2 |
+
+- [x] GFM task list
+
+脚注[^note]と数式 $x^2$。
+
+$$
+\\int_0^1 x^2\\,dx = \\frac{1}{3}
+$$
+
+[^note]: GFM footnote。
 
 ${fence}svg {title="図" description="説明"}
 <svg viewBox="0 0 100 40"><path id="line" d="M0 0 L100 40" stroke="var(--accent)" /></svg>
@@ -83,6 +104,13 @@ ${fence}
   assert.match(parsed.html, /download>ダウンロード/);
   assert.match(parsed.html, /href="\?report=other#section"/);
   assert.match(parsed.html, /<h1 id="demo-title">Demo title<\/h1>/);
+  assert.match(parsed.html, /class="contains-task-list"/);
+  assert.match(parsed.html, /class="footnotes"/);
+  assert.match(parsed.html, /class="katex"/);
+  assert.match(parsed.html, /<msubsup>/);
+  assert.match(parsed.html, /class="mdx-board columns-2"/);
+  assert.match(parsed.html, /class="mdx-board-panel mdx-panel-x1-w1 mdx-panel-y1-h2"/);
+  assert.match(parsed.html, /<h2 id="after-component">After component<\/h2>/);
   assert.doesNotMatch(parsed.html, /<script|onerror|javascript:/i);
 });
 
@@ -92,10 +120,24 @@ test("opt-in detection does not publish ordinary Markdown", () => {
   assert.equal(isExplainerMarkdown(document("本文")), true);
 });
 
-test("raw HTML, unknown directives, Mermaid, and missing transcripts are rejected", async () => {
+test("safe HTML, Mermaid, plot, unknown directives, and missing transcripts follow the contract", async () => {
+  const safeHtml = await parseMarkdown(document("<mark>安全なHTML</mark>"), { sourceUrl });
+  assert.match(safeHtml.html, /<mark>安全なHTML<\/mark>/);
+  const passiveHtml = await parseMarkdown(document('<abbr title="略語">HTML</abbr>'), { sourceUrl });
+  assert.match(passiveHtml.html, /<abbr title="略語">HTML<\/abbr>/);
   await assert.rejects(parseMarkdown(document("<script>alert(1)</script>"), { sourceUrl }), /raw HTML/);
+  await assert.rejects(parseMarkdown(document('<h1 id="spoof">偽の見出し</h1>'), { sourceUrl }), /raw HTML/);
+  await assert.rejects(parseMarkdown(document('<span class="mdx-callout" data-component="callout">偽装</span>'), { sourceUrl }), /raw HTML/);
   await assert.rejects(parseMarkdown(document(":::unknown\ntext\n:::"), { sourceUrl }), /未知の directive/);
-  await assert.rejects(parseMarkdown(document(`${fence}mermaid\ngraph TD\n${fence}`), { sourceUrl }), /Mermaid|mermaid/);
+  const mermaid = await parseMarkdown(document(`${fence}mermaid {title="処理フロー" description="入力から出力への流れ"}\ngraph TD\n  A[入力] --> B[出力]\n${fence}`), { sourceUrl });
+  assert.match(mermaid.html, /data-component="mermaid"/);
+  assert.match(mermaid.html, /data-mermaid-source="true"/);
+  const plot = await parseMarkdown(document(`${fence}plot {type="bar" title="比較" xLabel="項目" yLabel="値"}\n{"x":"A","y":1}\n{"x":"B","y":2}\n${fence}`), { sourceUrl });
+  assert.match(plot.html, /class="mdx-plot"/);
+  assert.match(plot.html, /class="mdx-plot-svg"/);
+  await assert.rejects(parseMarkdown(document(`${fence}mermaid\n%%{init: {"securityLevel": "loose"}}%%\ngraph TD\n${fence}`), { sourceUrl }), /directive/);
+  await assert.rejects(parseMarkdown(document(`${fence}mermaid\n%%{initialize: {"securityLevel": "loose"}}%%\ngraph TD\n${fence}`), { sourceUrl }), /directive/);
+  await assert.rejects(parseMarkdown(document(`${fence}mermaid\ngraph TD\n  A --> B\n  click A "https://evil.example"\n${fence}`), { sourceUrl }), /外部遷移/);
   await assert.rejects(parseMarkdown(document(`${fence}audio\nsrc: ./assets/demo.mp3\n${fence}`), { sourceUrl }), /transcript/);
 });
 
