@@ -47,11 +47,11 @@ const unexpectedRequests = [];
 const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
 page.on("pageerror", (error) => errors.push(`pageerror: ${error.message}`));
 page.on("console", (message) => {
-  if (message.type() === "error") errors.push(`console: ${message.text()}`);
+  if (message.type() === "error" && !message.text().includes("https://example.invalid/blocked")) errors.push(`console: ${message.text()}`);
 });
 page.on("request", (request) => {
   const url = request.url();
-  if (!url.startsWith(baseUrl) && !url.startsWith("data:")) unexpectedRequests.push(url);
+  if (!url.startsWith(baseUrl) && !url.startsWith("data:") && !url.startsWith("blob:")) unexpectedRequests.push(url);
 });
 
 async function waitForReport() {
@@ -65,8 +65,8 @@ async function waitForReport() {
 }
 
 await page.goto(baseUrl, { waitUntil: "networkidle" });
-await page.locator("#report-list .report-card").waitFor();
-await page.locator("#report-list .report-card").first().click();
+await page.locator("#report-list .report-card").first().waitFor();
+await page.locator("#report-list .report-card").filter({ hasText: "Markdown と HTML" }).click();
 await waitForReport();
 const reportId = "markdown-html-hybrid-platform";
 
@@ -79,14 +79,43 @@ const initial = await page.evaluate(() => ({
   math: Boolean(document.querySelector("#report-view math")),
   plot: Boolean(document.querySelector("#report-view [data-component=plot] svg")),
   board: Boolean(document.querySelector("#report-view [data-component=board] [data-component=panel]")),
+  toc: Boolean(document.querySelector("#report-view [data-component=toc] [data-toc=\"list\"] a")),
+  panes: Boolean(document.querySelector("#report-view [data-component=panes] [data-component=pane]")),
+  cards: Boolean(document.querySelector("#report-view [data-component=cards] [data-component=card]")),
+  modal: Boolean(document.querySelector("#report-view [data-component=modal] [data-modal-open]")),
+  sandbox: Boolean(document.querySelector("#report-view [data-component=sandbox-html] [data-sandbox-run]")),
   audio: Boolean(document.querySelector("#report-view audio[controls]")),
   transcript: Boolean(document.querySelector("#report-view [data-component=audio] + details")),
   noAutoplay: [...document.querySelectorAll("#report-view audio")].every((audio) => !audio.autoplay && audio.paused),
   internalLink: document.querySelector("#report-view a[href^='?report=']")?.getAttribute("href"),
 }));
 if (!initial.title.includes("Markdown と HTML")) throw new Error("レポートの document.title が不正です");
-if (!initial.h1 || !initial.svg || !initial.mermaid || initial.mermaidStyleElements !== 0 || !initial.math || !initial.plot || !initial.board || !initial.audio || !initial.transcript || !initial.noAutoplay) throw new Error(`リッチ部品の表示または音声の初期状態が不正です: ${JSON.stringify(initial)}`);
+if (!initial.h1 || !initial.svg || !initial.mermaid || initial.mermaidStyleElements !== 0 || !initial.math || !initial.plot || !initial.board || !initial.toc || !initial.panes || !initial.cards || !initial.modal || !initial.sandbox || !initial.audio || !initial.transcript || !initial.noAutoplay) throw new Error(`リッチ部品の表示または音声の初期状態が不正です: ${JSON.stringify(initial)}`);
 if (initial.internalLink !== "?report=markdown-html-hybrid-platform#%E7%B5%90%E8%AB%96") throw new Error(`内部レポートリンクが不正です: ${initial.internalLink}`);
+
+await page.locator("#report-view [data-modal-open]").click();
+if (!(await page.locator("#report-view [data-modal-dialog]").evaluate((dialog) => dialog.open))) throw new Error("modal が開きません");
+await page.locator("#report-view [data-modal-close]").click();
+if (await page.locator("#report-view [data-modal-dialog]").evaluate((dialog) => dialog.open)) throw new Error("modal が閉じません");
+await page.locator("#report-view [data-component=sandbox-html] [data-sandbox-run]").click();
+const sandboxFrame = page.locator("#report-view [data-component=sandbox-html] iframe");
+await sandboxFrame.waitFor();
+if (await sandboxFrame.getAttribute("sandbox") !== "allow-scripts") throw new Error("sandbox iframe の権限が不正です");
+const sandboxButton = page.frameLocator("#report-view [data-component=sandbox-html] iframe").locator("#counter");
+await sandboxButton.click();
+if (await sandboxButton.textContent() !== "1") throw new Error("sandbox HTML/JS の実行結果が不正です");
+const sandboxNavigation = page.frameLocator("#report-view [data-component=sandbox-html] iframe").locator("#blocked-navigation");
+await sandboxNavigation.click();
+if (await sandboxButton.textContent() !== "1") throw new Error("sandbox の外部遷移が遮断されません");
+await page.locator("#report-view [data-component=sandbox-html] [data-sandbox-stop]").click();
+if (await page.locator("#report-view [data-component=sandbox-html] iframe").count() !== 0) throw new Error("sandbox iframe が停止時に破棄されません");
+
+await page.locator("#report-list .report-card").filter({ hasText: "HTML レポート読み込み PoC" }).click();
+const htmlFrame = page.frameLocator("#report-view iframe.html-report-frame");
+await htmlFrame.locator("#html-poc-button").waitFor();
+await htmlFrame.locator("#html-poc-button").click();
+if (await htmlFrame.locator("#html-poc-count").textContent() !== "1") throw new Error("通常のHTML report の JavaScript が実行されません");
+await page.locator("#report-list .report-card").filter({ hasText: "Markdown と HTML" }).click();
 await page.locator("#report-view a[href^='?report=']").click();
 await waitForReport();
 if (page.url() !== `${baseUrl}?report=${reportId}#%E7%B5%90%E8%AB%96`) throw new Error(`内部リンクがSPA遷移になっていません: ${page.url()}`);
@@ -138,6 +167,11 @@ const motion = await page.evaluate(() => [...document.querySelectorAll("body *")
   return Number.parseFloat(style.animationDuration) > 0.15 || Number.parseFloat(style.transitionDuration) > 0.15;
 }));
 if (motion) throw new Error("reduced motionで長いanimation/transitionが残っています");
+
+await page.setViewportSize({ width: 390, height: 900 });
+if (await page.locator("#library-panel").evaluate((panel) => getComputedStyle(panel).display) !== "none") throw new Error("モバイルのライブラリが初期表示されています");
+await page.locator("#library-toggle").click();
+if (await page.locator("#library-panel").evaluate((panel) => getComputedStyle(panel).display) === "none") throw new Error("モバイルのハンバーガーメニューでライブラリを開けません");
 
 if (errors.length) throw new Error(errors.join("\n"));
 if (unexpectedRequests.length) throw new Error(`同一origin外の自動request: ${unexpectedRequests.join(", ")}`);

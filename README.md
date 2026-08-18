@@ -10,8 +10,8 @@ npm ci
 npm run dev
 ```
 
-`researches/2026/20260818_markdown-html-hybrid-platform.md` が、独自記法を含むサンプルレポートです。
-Markdownを編集して`main`へpushすると、GitHub Actionsが静的SPAをビルドし、GitHub Pagesへデプロイします。
+`researches/2026/20260818_markdown-html-hybrid-platform.md` が、独自記法を含むサンプルレポートです。`*.html` もレポートとして自動発見され、ライブラリから通常の HTML 文書として表示できます。
+Markdown または HTML を編集して `main` へ push すると、GitHub Actions が静的 SPA をビルドし、GitHub Pages へデプロイします。
 
 ## GitHub Pages
 

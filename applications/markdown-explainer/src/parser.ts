@@ -44,9 +44,17 @@ type ParserResult = {
   assets: string[];
 };
 
-const allowedDirectiveNames = new Set(["callout", "metrics", "metric", "tabs", "tab", "details", "board", "panel"]);
+const allowedDirectiveNames = new Set([
+  "callout", "metrics", "metric", "tabs", "tab", "details", "board", "panel",
+  "toc", "label", "text", "panes", "pane", "cards", "card", "modal",
+]);
 const allowedCalloutKinds = new Set(["note", "tip", "important", "warning", "danger"]);
 const allowedMetricTones = new Set(["neutral", "positive", "warning", "negative"]);
+const allowedLabelTones = new Set(["neutral", "accent", "positive", "warning", "danger"]);
+const allowedLabelVariants = new Set(["soft", "solid", "outline"]);
+const allowedLabelSizes = new Set(["sm", "md"]);
+const allowedTextColors = new Set(["default", "muted", "accent", "positive", "warning", "danger"]);
+const allowedTextSizes = new Set(["xs", "sm", "md", "lg", "xl"]);
 const allowedAudioExtensions = new Set(["aac", "flac", "m4a", "mp3", "ogg", "opus", "wav"]);
 const allowedImageExtensions = new Set(["png", "jpg", "jpeg", "webp", "gif", "avif"]);
 const allowedPlotTypes = new Set(["bar", "line", "scatter"]);
@@ -176,6 +184,7 @@ const allowedHtmlTags = [
   "hgroup",
   "details",
   "summary",
+  "dialog",
   "audio",
   "svg",
   "g",
@@ -232,6 +241,8 @@ const MAX_FRONTMATTER_BYTES = 16 * 1024;
 const MAX_SVG_BYTES = 256 * 1024;
 const MAX_MERMAID_BYTES = 32 * 1024;
 const MAX_PLOT_BYTES = 128 * 1024;
+const MAX_SANDBOX_BYTES = 128 * 1024;
+const MAX_SANDBOX_COUNT = 4;
 const MAX_BOARD_ROWS = 6;
 
 const commonAttributes = [
@@ -274,6 +285,31 @@ const commonAttributes = [
   "dataPanelY",
   "dataPanelW",
   "dataPanelH",
+  "dataToc",
+  "dataTocMinLevel",
+  "dataTocMaxLevel",
+  "dataTocOrdered",
+  "dataTocMobile",
+  "dataLabel",
+  "dataText",
+  "dataPanesColumns",
+  "dataPane",
+  "dataCardsColumns",
+  "dataCard",
+  "dataCardLabel",
+  "dataModalId",
+  "dataModalOpen",
+  "dataModalDialog",
+  "dataModalClose",
+  "dataSandbox",
+  "dataSandboxTitle",
+  "dataSandboxDescription",
+  "dataSandboxHeight",
+  "dataSandboxScripts",
+  "dataSandboxSource",
+  "dataSandboxRun",
+  "dataSandboxStop",
+  "dataSandboxCanvas",
 ];
 
 const svgAttributeNames = [
@@ -337,6 +373,7 @@ const sanitizeSchema = {
     button: [...commonAttributes, "type"],
     input: [...commonAttributes, "type", "disabled", "checked"],
     details: [...commonAttributes, "open"],
+    dialog: [...commonAttributes, "open"],
     audio: [...commonAttributes, "controls", "preload", "src"],
     q: [...commonAttributes, "cite"],
     time: [...commonAttributes, "dateTime"],
@@ -411,9 +448,10 @@ function parseFrontmatter(tree: Node): ReportFrontmatter {
     fail("front matter の anchor / alias は許可されていません", yamlNode);
   }
   const data = document.toJS({ mapAsMap: false }) as Record<string, unknown>;
-  const allowed = new Set(["explainer", "id", "summary", "published", "lang", "tags"]);
+  const allowed = new Set(["explainer", "hybridMarkdown", "id", "summary", "published", "lang", "tags"]);
   for (const key of Object.keys(data ?? {})) if (!allowed.has(key)) fail(`front matter のキー ${key} は許可されていません`, yamlNode);
   if (data?.explainer !== true) fail("公開対象の front matter には explainer: true が必要です", yamlNode);
+  if (data?.hybridMarkdown !== 1) fail("front matter には hybridMarkdown: 1 が必要です", yamlNode);
   const id = typeof data.id === "string" ? data.id : "";
   const summary = typeof data.summary === "string" ? data.summary : "";
   const published = typeof data.published === "string" ? data.published : "";
@@ -430,7 +468,7 @@ function parseFrontmatter(tree: Node): ReportFrontmatter {
   }
   if (tags.length > 8 || new Set(tags).size !== tags.length) fail("front matter の tags は重複しない0〜8件で指定してください", yamlNode);
   for (const tag of tags) ensureLength(tag, "front matter の tag", 1, 32, yamlNode);
-  return { explainer: true, id, summary, published, lang, tags };
+  return { explainer: true, hybridMarkdown: 1, id, summary, published, lang, tags };
 }
 
 function parseFenceInfo(meta: string | null | undefined, node: Node): Record<string, string> {
@@ -445,11 +483,56 @@ function parseFenceInfo(meta: string | null | undefined, node: Node): Record<str
     while (/\s/.test(body[cursor] ?? "")) cursor += 1;
     pattern.lastIndex = cursor;
     const match = pattern.exec(body);
-    if (!match || match.index !== cursor || attrs[match[1]]) fail("fence の属性が不正です", node);
+    if (!match || match.index !== cursor || Object.prototype.hasOwnProperty.call(attrs, match[1])) fail("fence の属性が不正です", node);
     attrs[match[1]] = match[2];
     cursor = pattern.lastIndex;
   }
   return attrs;
+}
+
+function assertUniqueAttributeSyntax(raw: string, label: string): void {
+  const body = raw.trim();
+  if (!body) return;
+  if (!body.startsWith("{") || !body.endsWith("}")) throw new Error(`${label} の属性が不正です`);
+  const source = body.slice(1, -1).trim();
+  const attrs = new Set<string>();
+  const pattern = /([a-z][A-Za-z0-9-]*)="([^"\\]*(?:\\.[^"\\]*)*)"/gy;
+  let cursor = 0;
+  while (cursor < source.length) {
+    while (/\s/.test(source[cursor] ?? "")) cursor += 1;
+    pattern.lastIndex = cursor;
+    const match = pattern.exec(source);
+    if (!match || match.index !== cursor) throw new Error(`${label} の属性が不正です`);
+    if (attrs.has(match[1])) throw new Error(`${label} の属性 ${match[1]} が重複しています`);
+    attrs.add(match[1]);
+    cursor = pattern.lastIndex;
+  }
+}
+
+function validateRawAttributeSyntax(markdown: string): void {
+  let fenced = false;
+  for (const line of markdown.split(/\r?\n/)) {
+    const fence = /^```([A-Za-z0-9-]+)(?:\s+(\{.*\}))?\s*$/.exec(line);
+    if (fenced) {
+      if (/^```\s*$/.test(line)) fenced = false;
+      continue;
+    }
+    if (fence) {
+      if (["mermaid", "svg", "audio", "plot", "sandbox-html"].includes(fence[1].toLowerCase())) assertUniqueAttributeSyntax(fence[2] ?? "", `${fence[1]} fence`);
+      fenced = true;
+      continue;
+    }
+    const directive = /^\s*:{2,}[a-z][a-z0-9-]*(?:\[[^\]]*\])?(\{.*\})?\s*$/.exec(line);
+    if (directive) {
+      assertUniqueAttributeSyntax(directive[1] ?? "", "directive");
+      continue;
+    }
+    for (const match of line.matchAll(/(?<![A-Za-z0-9_]):{1,2}([a-z][a-z0-9-]*)\[[^\]]*\](\{[^{}]*\})?/g)) {
+      const name = match[1] === "metric" && line.slice(Math.max(0, (match.index ?? 0)), (match.index ?? 0) + 2) === "::" ? "metric" : match[1];
+      if (!["label", "text", "metric"].includes(name)) throw new Error(`未知の inline directive ${match[1]}`);
+      assertUniqueAttributeSyntax(match[2] ?? "", `${name} directive`);
+    }
+  }
 }
 
 function parseAudio(value: string, node: Node): { title: string; caption: string; tracks: { src: string; label: string }[] } {
@@ -561,7 +644,7 @@ function renderSvg(value: string, meta: string | null | undefined, node: Node, i
   return {
     type: "element",
     tagName: "figure",
-    properties: { className: ["mdx-svg"] },
+    properties: { className: ["mdx-svg"], dataComponent: "svg" },
     children: [svg],
   };
 }
@@ -823,9 +906,84 @@ function createHandlers() {
           ...children,
         ]);
       }
+      if (node.name === "panes") {
+        const values = directiveAttrs(node, "panes", ["label", "columns"], ["label", "columns"]);
+        ensureLength(values.label, "panes の label", 1, 80, node);
+        if (!["2", "3"].includes(values.columns)) fail("panes の columns は 2 または 3 です", node);
+        return makeElement("section", { className: ["mdx-panes", `columns-${values.columns}`], dataComponent: "panes", dataPanesColumns: values.columns, ariaLabel: values.label }, [
+          makeElement("h3", { dataRendererHeading: "true" }, [makeText(values.label)]),
+          makeElement("div", { className: ["mdx-panes-grid"] }, children),
+        ]);
+      }
+      if (node.name === "pane") {
+        const values = directiveAttrs(node, "pane", ["title"], ["title"]);
+        ensureLength(values.title, "pane の title", 1, 80, node);
+        return makeElement("article", { className: ["mdx-pane"], dataComponent: "pane", dataPane: "true" }, [
+          makeElement("h4", { dataRendererHeading: "true" }, [makeText(values.title)]),
+          ...children,
+        ]);
+      }
+      if (node.name === "cards") {
+        const values = directiveAttrs(node, "cards", ["label", "columns"], ["label", "columns"]);
+        ensureLength(values.label, "cards の label", 1, 80, node);
+        if (!["2", "3"].includes(values.columns)) fail("cards の columns は 2 または 3 です", node);
+        return makeElement("section", { className: ["mdx-cards", `columns-${values.columns}`], dataComponent: "cards", dataCardsColumns: values.columns, ariaLabel: values.label }, [
+          makeElement("h3", { dataRendererHeading: "true" }, [makeText(values.label)]),
+          makeElement("div", { className: ["mdx-cards-track"], dataCard: "track" }, children),
+          makeElement("div", { className: ["mdx-cards-controls"], hidden: true }, [
+            makeElement("button", { type: "button", dataCard: "previous", ariaLabel: "前のカード" }, [makeText("前へ")]),
+            makeElement("span", { dataCard: "status", ariaLive: "polite" }, [makeText("")]),
+            makeElement("button", { type: "button", dataCard: "next", ariaLabel: "次のカード" }, [makeText("次へ")]),
+          ]),
+        ]);
+      }
+      if (node.name === "card") {
+        const values = directiveAttrs(node, "card", ["title", "label"], ["title"]);
+        ensureLength(values.title, "card の title", 1, 80, node);
+        if (values.label) ensureLength(values.label, "card の label", 1, 40, node);
+        return makeElement("article", { className: ["mdx-card"], dataComponent: "card", dataCard: "item", dataCardLabel: values.label || "" }, [
+          makeElement("header", {}, [
+            makeElement("h4", { dataRendererHeading: "true" }, [makeText(values.title)]),
+            ...(values.label ? [makeElement("span", { className: ["mdx-card-label"] }, [makeText(values.label)])] : []),
+          ]),
+          ...children,
+        ]);
+      }
+      if (node.name === "modal") {
+        const values = directiveAttrs(node, "modal", ["id", "trigger", "title", "size"], ["id", "trigger", "title"]);
+        if (!/^[a-z][a-z0-9_-]{0,63}$/.test(values.id)) fail("modal の id が不正です", node);
+        if (!["sm", "md", "lg"].includes(values.size || "md")) fail("modal の size は sm、md、lg です", node);
+        ensureLength(values.trigger, "modal の trigger", 1, 80, node);
+        ensureLength(values.title, "modal の title", 1, 120, node);
+        const modalId = `modal-${values.id}`;
+        const titleId = `${modalId}-title`;
+        return makeElement("section", { className: ["mdx-modal", `size-${values.size || "md"}`], dataComponent: "modal", dataModalId: modalId }, [
+          makeElement("button", { type: "button", dataModalOpen: modalId }, [makeText(values.trigger)]),
+          makeElement("dialog", { id: modalId, className: ["mdx-modal-dialog"], dataModalDialog: "true", ariaLabelledBy: `user-content-${titleId}` }, [
+            makeElement("div", { className: ["mdx-modal-header"] }, [
+              makeElement("h3", { id: titleId, dataRendererHeading: "true" }, [makeText(values.title)]),
+              makeElement("button", { type: "button", dataModalClose: "true", ariaLabel: "閉じる" }, [makeText("閉じる")]),
+            ]),
+            makeElement("div", { className: ["mdx-modal-body"] }, children),
+          ]),
+        ]);
+      }
       fail(`未知の container directive ${node.name}`, node);
     },
     leafDirective(state: any, node: Node): HastNode {
+      if (node.name === "toc") {
+        const values = directiveAttrs(node, "toc", ["minLevel", "maxLevel", "ordered", "mobile"]);
+        const minLevel = parseGridInteger(values.minLevel || "2", "toc の minLevel", 1, 6, node);
+        const maxLevel = parseGridInteger(values.maxLevel || "4", "toc の maxLevel", minLevel, 6, node);
+        if (!["true", "false"].includes(values.ordered || "false")) fail("toc の ordered は true または false です", node);
+        if (!["hidden", "visible"].includes(values.mobile || "hidden")) fail("toc の mobile は hidden または visible です", node);
+        const label = childrenText(node) || "目次";
+        ensureLength(label, "toc の label", 1, 80, node);
+        return makeElement("nav", { className: ["mdx-toc", `mobile-${values.mobile || "hidden"}`], dataComponent: "toc", dataToc: "true", dataTocMinLevel: String(minLevel), dataTocMaxLevel: String(maxLevel), dataTocOrdered: values.ordered || "false", dataTocMobile: values.mobile || "hidden", ariaLabel: label }, [
+          makeElement("h2", { dataRendererHeading: "true" }, [makeText(label)]),
+          makeElement("div", { className: ["mdx-toc-list"], dataToc: "list" }),
+        ]);
+      }
       if (node.name !== "metric") fail(`未知の leaf directive ${node.name}`, node);
       const values = directiveAttrs(node, "metric", ["label", "unit", "tone"], ["label", "unit", "tone"]);
       ensureLength(values.label, "metric の label", 1, 80, node);
@@ -858,7 +1016,52 @@ function createHandlers() {
           ]))),
         ]);
       }
+      if (lang === "sandbox-html") {
+        const attrs = parseFenceInfo(node.meta, node);
+        for (const key of Object.keys(attrs)) if (!["title", "description", "height", "scripts"].includes(key)) fail(`sandbox-html fence の属性 ${key} は許可されていません`, node);
+        if (!attrs.title || !attrs.scripts || !["true", "false"].includes(attrs.scripts)) fail("sandbox-html fence には title と scripts が必要です", node);
+        const height = attrs.height || "360";
+        const heightNumber = parseGridInteger(height, "sandbox-html の height", 160, 900, node);
+        ensureLength(attrs.title, "sandbox-html の title", 1, 120, node);
+        if (attrs.description) ensureLength(attrs.description, "sandbox-html の description", 1, 240, node);
+        if (new TextEncoder().encode(node.value ?? "").byteLength > MAX_SANDBOX_BYTES) fail("sandbox-html fence は128 KiB以下で指定してください", node);
+        return makeElement("figure", { className: ["mdx-sandbox"], dataComponent: "sandbox-html", dataSandbox: "true", dataSandboxTitle: attrs.title, dataSandboxDescription: attrs.description || "", dataSandboxHeight: String(heightNumber), dataSandboxScripts: attrs.scripts }, [
+          makeElement("figcaption", {}, [makeText(attrs.title)]),
+          ...(attrs.description ? [makeElement("p", { className: ["mdx-sandbox-description"] }, [makeText(attrs.description)])] : []),
+          makeElement("div", { className: ["mdx-sandbox-actions"] }, [
+            makeElement("button", { type: "button", dataSandboxRun: "true" }, [makeText("実行")]),
+            makeElement("button", { type: "button", dataSandboxStop: "true", hidden: true }, [makeText("停止")]),
+          ]),
+          makeElement("div", { className: ["mdx-sandbox-canvas"], dataSandboxCanvas: "true" }, []),
+          makeElement("details", { className: ["mdx-sandbox-source"] }, [
+            makeElement("summary", {}, [makeText("HTMLソースを表示")]),
+            makeElement("pre", {}, [makeElement("code", { dataSandboxSource: "true" }, [makeText(node.value ?? "")])]),
+          ]),
+        ]);
+      }
       return makeElement("pre", {}, [makeElement("code", { className: lang ? [`language-${lang}`] : [] }, [makeText(node.value ?? "")])]);
+    },
+    textDirective(state: any, node: Node): HastNode {
+      if (node.name === "label") {
+        const values = directiveAttrs(node, "label", ["tone", "variant", "size"]);
+        const tone = values.tone || "neutral";
+        const variant = values.variant || "soft";
+        const size = values.size || "md";
+        if (!allowedLabelTones.has(tone) || !allowedLabelVariants.has(variant) || !allowedLabelSizes.has(size)) fail("label の tone、variant、size が不正です", node);
+        const value = childrenText(node);
+        ensureLength(value, "label の本文", 1, 80, node);
+        return makeElement("span", { className: ["mdx-label", `tone-${tone}`, `variant-${variant}`, `size-${size}`], dataComponent: "label", dataLabel: value }, state.all(node) as HastNode[]);
+      }
+      if (node.name === "text") {
+        const values = directiveAttrs(node, "text", ["color", "size"]);
+        const color = values.color || "default";
+        const size = values.size || "md";
+        if (!allowedTextColors.has(color) || !allowedTextSizes.has(size)) fail("text の color または size が不正です", node);
+        const value = childrenText(node);
+        ensureLength(value, "text の本文", 1, 4000, node);
+        return makeElement("span", { className: ["mdx-text", `color-${color}`, `size-${size}`], dataComponent: "text", dataText: "true" }, state.all(node) as HastNode[]);
+      }
+      fail(`未知の text directive ${node.name}`, node);
     },
   };
 }
@@ -893,7 +1096,10 @@ function validateRawHtml(value: string, node: Node): void {
 
 type ValidationState = {
   tabIds: Set<string>;
+  modalIds: Set<string>;
+  tocCount: number;
   mermaidSources: string[];
+  sandboxCount: number;
 };
 
 function parseGridInteger(value: string, label: string, min: number, max: number, node: Node): number {
@@ -936,6 +1142,33 @@ function validateNode(node: Node, context: string, headings: Node[], assets: str
       assets.push(...audio.tracks.map((track) => track.src));
     }
     if (lang === "svg") renderSvg(node.value ?? "", node.meta, node, 999);
+    if (lang === "sandbox-html") {
+      if (context !== "root") fail("sandbox-html は本文直下に置いてください", node);
+      state.sandboxCount += 1;
+      if (state.sandboxCount > MAX_SANDBOX_COUNT) fail("一つのレポートに置ける sandbox-html は4個までです", node);
+      const values = parseFenceInfo(node.meta, node);
+      for (const key of Object.keys(values)) if (!["title", "description", "height", "scripts"].includes(key)) fail(`sandbox-html fence の属性 ${key} は許可されていません`, node);
+      requireAttrs({ ...node, attributes: values, name: "sandbox-html" }, ["title", "description", "height", "scripts"], ["title", "scripts"]);
+      if (!["true", "false"].includes(values.scripts)) fail("sandbox-html の scripts は true または false です", node);
+      const height = parseGridInteger(values.height || "360", "sandbox-html の height", 160, 900, node);
+      void height;
+      ensureLength(values.title, "sandbox-html の title", 1, 120, node);
+      if (values.description) ensureLength(values.description, "sandbox-html の description", 1, 240, node);
+      if (new TextEncoder().encode(node.value ?? "").byteLength > MAX_SANDBOX_BYTES) fail("sandbox-html fence は128 KiB以下で指定してください", node);
+    }
+  }
+  if (node.type === "textDirective") {
+    if (!node.name || !["label", "text"].includes(node.name)) fail(`未知の text directive ${node.name ?? ""}`, node);
+    const values = node.name === "label"
+      ? directiveAttrs(node, "label", ["tone", "variant", "size"])
+      : directiveAttrs(node, "text", ["color", "size"]);
+    const value = childrenText(node);
+    ensureLength(value, `${node.name} の本文`, 1, node.name === "label" ? 80 : 4000, node);
+    if (node.name === "label") {
+      if (!allowedLabelTones.has(values.tone || "neutral") || !allowedLabelVariants.has(values.variant || "soft") || !allowedLabelSizes.has(values.size || "md")) fail("label の tone、variant、size が不正です", node);
+    } else if (!allowedTextColors.has(values.color || "default") || !allowedTextSizes.has(values.size || "md")) {
+      fail("text の color または size が不正です", node);
+    }
   }
   if (["containerDirective", "leafDirective"].includes(node.type)) {
     if (!node.name || !allowedDirectiveNames.has(node.name)) fail(`未知の directive ${node.name ?? ""}`, node);
@@ -950,6 +1183,51 @@ function validateNode(node: Node, context: string, headings: Node[], assets: str
     if (node.name === "callout" && context === "callout") fail("callout の入れ子は許可されていません", node);
     if (node.name === "tabs" && context === "tab") fail("tabs の入れ子は許可されていません", node);
     if (node.name === "details" && context === "details") fail("details の入れ子は許可されていません", node);
+    if (node.name === "toc") {
+      if (node.type !== "leafDirective" || context !== "root") fail("toc は本文直下の leaf directive として一つだけ置いてください", node);
+      state.tocCount += 1;
+      if (state.tocCount > 1) fail("toc は一つのレポートに一つだけ置けます", node);
+      const values = directiveAttrs(node, "toc", ["minLevel", "maxLevel", "ordered", "mobile"]);
+      const minLevel = parseGridInteger(values.minLevel || "2", "toc の minLevel", 1, 6, node);
+      parseGridInteger(values.maxLevel || "4", "toc の maxLevel", minLevel, 6, node);
+      if (!["true", "false"].includes(values.ordered || "false")) fail("toc の ordered は true または false です", node);
+      if (!["hidden", "visible"].includes(values.mobile || "hidden")) fail("toc の mobile は hidden または visible です", node);
+      if (childrenText(node).length > 80) fail("toc の label は80文字以下で指定してください", node);
+    }
+    if (node.name === "panes" || node.name === "cards" || node.name === "modal") {
+      if (context !== "root") fail(`${node.name} は本文直下に置いてください`, node);
+    }
+    if (node.name === "pane" && context !== "panes") fail("pane は panes の直下に置いてください", node);
+    if (node.name === "card" && context !== "cards") fail("card は cards の直下に置いてください", node);
+    if (node.name === "panes") {
+      const values = requireAttrs({ ...node, name: "panes" }, ["label", "columns"], ["label", "columns"]);
+      if (!/[23]/.test(values.columns) || !["2", "3"].includes(values.columns)) fail("panes の columns は 2 または 3 です", node);
+      const panes = node.children ?? [];
+      if (panes.length < 2 || panes.length > 3 || panes.some((child) => child.type !== "containerDirective" || child.name !== "pane")) fail("panes は pane を2〜3個だけ直下に含めてください", node);
+    }
+    if (node.name === "pane") {
+      const values = requireAttrs({ ...node, name: "pane" }, ["title"], ["title"]);
+      ensureLength(values.title, "pane の title", 1, 80, node);
+    }
+    if (node.name === "cards") {
+      const values = requireAttrs({ ...node, name: "cards" }, ["label", "columns"], ["label", "columns"]);
+      if (!["2", "3"].includes(values.columns)) fail("cards の columns は 2 または 3 です", node);
+      const cards = node.children ?? [];
+      if (cards.length < 2 || cards.length > 12 || cards.some((child) => child.type !== "containerDirective" || child.name !== "card")) fail("cards は card を2〜12個だけ直下に含めてください", node);
+    }
+    if (node.name === "card") {
+      const values = requireAttrs({ ...node, name: "card" }, ["title", "label"], ["title"]);
+      ensureLength(values.title, "card の title", 1, 80, node);
+      if (values.label) ensureLength(values.label, "card の label", 1, 40, node);
+    }
+    if (node.name === "modal") {
+      const values = requireAttrs({ ...node, name: "modal" }, ["id", "trigger", "title", "size"], ["id", "trigger", "title"]);
+      if (!/^[a-z][a-z0-9_-]{0,63}$/.test(values.id) || state.modalIds.has(values.id)) fail("modal の id は文書内で一意な識別子にしてください", node);
+      state.modalIds.add(values.id);
+      if (values.size && !["sm", "md", "lg"].includes(values.size)) fail("modal の size は sm、md、lg です", node);
+      ensureLength(values.trigger, "modal の trigger", 1, 80, node);
+      ensureLength(values.title, "modal の title", 1, 120, node);
+    }
     if (node.name === "tabs") {
       const id = node.attributes?.id ?? "";
       if (state.tabIds.has(id)) fail(`tabs の id ${id} が重複しています`, node);
@@ -1022,7 +1300,7 @@ function validateNode(node: Node, context: string, headings: Node[], assets: str
 function validateStructure(tree: Node, frontmatter: ReportFrontmatter): { title: string; headings: string[]; assets: string[]; mermaidSources: string[] } {
   const headings: Node[] = [];
   const assets: string[] = [];
-  const state: ValidationState = { tabIds: new Set(), mermaidSources: [] };
+  const state: ValidationState = { tabIds: new Set(), modalIds: new Set(), tocCount: 0, mermaidSources: [], sandboxCount: 0 };
   validateNode(tree, "root", headings, assets, state);
   const h1 = headings.filter((heading) => heading.depth === 1);
   if (h1.length !== 1 || tree.children?.find((node) => node.type !== "yaml")?.type !== "heading") fail("front matter 直後にレベル1見出しを一つだけ置いてください");
@@ -1060,9 +1338,9 @@ export function isExplainerMarkdown(markdown: string): boolean {
     const yamlNode = tree.children?.[0];
     if (yamlNode?.type !== "yaml" || new TextEncoder().encode(yamlNode.value ?? "").byteLength > MAX_FRONTMATTER_BYTES) return false;
     const document = YAML.parseDocument(yamlNode.value ?? "", { schema: "core", uniqueKeys: true });
-    if (document.errors.length || document.warnings.length) return /^\s*explainer\s*:\s*true\s*$/m.test(yamlNode.value ?? "");
+    if (document.errors.length || document.warnings.length) return /^\s*explainer\s*:\s*true\s*$/m.test(yamlNode.value ?? "") && /^\s*hybridMarkdown\s*:\s*1\s*$/m.test(yamlNode.value ?? "");
     const data = document.toJS({ mapAsMap: false }) as Record<string, unknown>;
-    return data?.explainer === true;
+    return data?.explainer === true && data?.hybridMarkdown === 1;
   } catch {
     return false;
   }
@@ -1130,6 +1408,7 @@ function resolveHastUrls(tree: HastNode, options: ParseOptions): void {
 }
 
 export function inspectMarkdown(markdown: string): { frontmatter: ReportFrontmatter; title: string; headings: string[]; assets: string[]; mermaidSources: string[] } {
+  validateRawAttributeSyntax(markdown);
   const tree = parseTree(markdown);
   const yamlNode = tree.children?.[0];
   if (yamlNode?.type === "yaml" && new TextEncoder().encode(yamlNode.value ?? "").byteLength > MAX_FRONTMATTER_BYTES) {
@@ -1141,6 +1420,7 @@ export function inspectMarkdown(markdown: string): { frontmatter: ReportFrontmat
 }
 
 export async function parseMarkdown(markdown: string, options: ParseOptions): Promise<ParsedReport> {
+  validateRawAttributeSyntax(markdown);
   const tree = parseTree(markdown);
   const yamlNode = tree.children?.[0];
   if (yamlNode?.type === "yaml" && new TextEncoder().encode(yamlNode.value ?? "").byteLength > MAX_FRONTMATTER_BYTES) {
@@ -1190,12 +1470,14 @@ export function validateManifest(value: unknown): ManifestReport[] {
     if (!item || typeof item !== "object") throw new Error("manifest の report がオブジェクトではありません");
     const report = item as Partial<ManifestReport>;
     const keys = Object.keys(report).sort().join(",");
-    if (keys !== "group,id,lang,published,revision,source,summary,tags,title") throw new Error(`manifest report のキーが不正です: ${keys}`);
+    if (keys !== "format,group,id,lang,published,revision,source,summary,tags,title") throw new Error(`manifest report のキーが不正です: ${keys}`);
     if (typeof report.id !== "string" || ids.has(report.id)) throw new Error("manifest の id が重複または不正です");
     if (!/^[a-z0-9][a-z0-9-]{0,79}$/.test(report.id)) throw new Error("manifest の id が不正です");
     if (typeof report.source !== "string" || sources.has(report.source)) throw new Error("manifest の source が重複または不正です");
-    const sourceMatch = /^content\/([^/]+)\/(.+\.md)$/.exec(report.source);
+    const sourceMatch = /^content\/([^/]+)\/(.+\.(?:md|html))$/.exec(report.source);
     if (!sourceMatch || /[\\?#%]/.test(report.source) || !REPORT_ROOTS.includes(sourceMatch[1] as (typeof REPORT_ROOTS)[number]) || sourceMatch[2].split("/").some((part) => !part || part === "." || part === ".." || part.includes("\\"))) throw new Error("manifest の source が不正です");
+    if (report.format !== "markdown" && report.format !== "html") throw new Error("manifest の format が不正です");
+    if ((report.format === "markdown" && !report.source.endsWith(".md")) || (report.format === "html" && !report.source.endsWith(".html"))) throw new Error("manifest の format と source の拡張子が一致しません");
     const group = report.group;
     if (typeof group !== "string" || !REPORT_ROOTS.includes(group as (typeof REPORT_ROOTS)[number])) throw new Error("manifest の group が不正です");
     if (sourceMatch[1] !== group) throw new Error("manifest の group と source が一致しません");

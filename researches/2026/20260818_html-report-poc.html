@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="description" content="通常の HTML レポートをライブラリから読み込む確認用ページ。">
+    <title>HTML レポート読み込み PoC</title>
+    <style>
+      :root { color-scheme: light dark; font-family: system-ui, sans-serif; }
+      body { margin: 0; padding: 2rem; background: Canvas; color: CanvasText; }
+      main { max-width: 42rem; margin: auto; }
+      button { min-height: 2.75rem; padding: 0.5rem 1rem; cursor: pointer; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <p>HTML report</p>
+      <h1>HTML レポート読み込み PoC</h1>
+      <p>これは Markdown とは別に、通常の HTML 文書をライブラリから表示する例です。</p>
+      <button id="html-poc-button" type="button">実行回数: <span id="html-poc-count">0</span></button>
+    </main>
+    <script>
+      const button = document.querySelector('#html-poc-button');
+      const count = document.querySelector('#html-poc-count');
+      button.addEventListener('click', () => {
+        count.textContent = String(Number(count.textContent) + 1);
+      });
+    </script>
+  </body>
+</html>

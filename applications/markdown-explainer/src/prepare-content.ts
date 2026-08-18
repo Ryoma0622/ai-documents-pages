@@ -1,10 +1,10 @@
 import { createHash } from "node:crypto";
 import { cp, lstat, mkdir, open, readFile, readdir, rm, writeFile } from "node:fs/promises";
-import { dirname, extname, join, relative, resolve, sep } from "node:path";
+import { basename, dirname, extname, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { JSDOM } from "jsdom";
 import { inspectMarkdown, isExplainerMarkdown, parseMarkdown } from "./parser";
-import { REPORT_ROOTS, type Manifest, type ManifestReport, type ReportRoot } from "./schema";
+import { REPORT_ROOTS, type Manifest, type ManifestReport, type ReportFormat, type ReportRoot } from "./schema";
 
 const appRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const repoRoot = resolve(appRoot, "../..");
@@ -49,12 +49,13 @@ type Candidate = {
   absolutePath: string;
   source: string;
   root: ReportRoot;
-  markdown: string;
+  format: ReportFormat;
+  content: string;
   report: ManifestReport;
   assets: string[];
 };
 
-async function listMarkdownFiles(root: string): Promise<string[]> {
+async function listReportFiles(root: string): Promise<string[]> {
   const output: string[] = [];
   async function visit(directory: string): Promise<void> {
     const entries = await readdir(directory, { withFileTypes: true });
@@ -64,7 +65,7 @@ async function listMarkdownFiles(root: string): Promise<string[]> {
       if (entry.isSymbolicLink()) throw new Error(`symlink は公開対象 root に置けません: ${absolutePath}`);
       if (entry.isDirectory()) {
         await visit(absolutePath);
-      } else if (entry.isFile() && extname(entry.name).toLowerCase() === ".md") {
+      } else if (entry.isFile() && [".md", ".html"].includes(extname(entry.name).toLowerCase())) {
         output.push(absolutePath);
       }
     }
@@ -86,6 +87,45 @@ function sourceUrl(source: string): string {
 
 function digest(markdown: string): string {
   return createHash("sha256").update(Buffer.from(markdown, "utf8")).digest("hex");
+}
+
+function htmlAssetUrls(html: string): string[] {
+  const urls = new Set<string>();
+  for (const match of html.matchAll(/\b(?:src|href)\s*=\s*["']([^"']+)["']/gi)) {
+    const raw = match[1].trim();
+    if (!raw || raw.startsWith("#") || /^(?:[a-z][a-z0-9+.-]*:|\/\/)/i.test(raw)) continue;
+    const clean = raw.split(/[?#]/, 1)[0];
+    if (clean) urls.add(clean);
+  }
+  return [...urls];
+}
+
+function htmlReportMetadata(html: string, source: string, root: ReportRoot): ManifestReport {
+  const document = new JSDOM(html).window.document;
+  const text = (value: string | null | undefined): string => (value ?? "").replace(/\s+/g, " ").trim();
+  const title = text(document.querySelector("title")?.textContent) || text(document.querySelector("h1")?.textContent) || basename(source, ".html");
+  const summary = text(document.querySelector('meta[name="description"]')?.getAttribute("content")) || title;
+  const publishedCandidate = text(document.querySelector('meta[property="article:published_time"], meta[name="published"]')?.getAttribute("content"));
+  const pathYear = source.match(/(?:^|\/)20\d{2}(?:\/|$)/)?.[0]?.replace(/\//g, "");
+  const published = /^\d{4}-\d{2}-\d{2}$/.test(publishedCandidate)
+    ? publishedCandidate
+    : pathYear
+      ? `${pathYear}-01-01`
+      : "1970-01-01";
+  const sourceSlug = source.slice("content/".length, -".html".length).replace(/[^a-z0-9]+/gi, "-").replace(/^-+|-+$/g, "").toLowerCase();
+  const id = `html-${sourceSlug || digest(source).slice(0, 12)}`.slice(0, 80);
+  return {
+    format: "html",
+    id,
+    summary: summary.slice(0, 160) || title.slice(0, 160),
+    published,
+    lang: document.documentElement.getAttribute("lang") || "ja",
+    tags: [],
+    title: title.slice(0, 200),
+    group: root,
+    source,
+    revision: digest(html),
+  };
 }
 
 function resolveAssetPath(raw: string, source: string): string {
@@ -116,6 +156,21 @@ async function copyAsset(raw: string, source: string): Promise<void> {
   };
   const accepted = aliases[expected] ?? [expected];
   if (!detected || !accepted.includes(detected.ext)) throw new Error(`asset の MIME / 拡張子が一致しません: ${raw}`);
+  const target = join(publicRoot, "content", relative(repoRoot, absolutePath));
+  await mkdir(dirname(target), { recursive: true });
+  await cp(absolutePath, target);
+}
+
+async function copyStaticAsset(raw: string, source: string): Promise<void> {
+  const absolutePath = resolveAssetPath(raw, source);
+  const sourceRoot = source.split("/")[1];
+  const publishedRoot = resolve(repoRoot, sourceRoot);
+  const outsidePublishedRoot = relative(publishedRoot, absolutePath);
+  if (outsidePublishedRoot.startsWith(`..${sep}`) || outsidePublishedRoot === "..") {
+    throw new Error(`HTML asset は同じ report root 内だけを参照できます: ${raw}`);
+  }
+  const fileInfo = await lstat(absolutePath).catch(() => null);
+  if (!fileInfo?.isFile()) throw new Error(`HTML が参照する asset が存在しません: ${raw}`);
   const target = join(publicRoot, "content", relative(repoRoot, absolutePath));
   await mkdir(dirname(target), { recursive: true });
   await cp(absolutePath, target);
@@ -153,34 +208,51 @@ async function collectCandidates(): Promise<Candidate[]> {
   const ids = new Set<string>();
   for (const root of REPORT_ROOTS) {
     const directory = join(repoRoot, root);
-    const files = await listMarkdownFiles(directory).catch((error: unknown) => {
+    const files = await listReportFiles(directory).catch((error: unknown) => {
       if (error instanceof Error && "code" in error && (error as NodeJS.ErrnoException).code === "ENOENT") return [];
       throw error;
     });
     for (const absolutePath of files) {
-      const markdown = await readFile(absolutePath, "utf8");
-      if (!isExplainerMarkdown(markdown)) continue;
       const { source } = sourcePath(absolutePath);
-      const inspected = inspectMarkdown(markdown);
-      if (ids.has(inspected.frontmatter.id)) throw new Error(`report id が重複しています: ${inspected.frontmatter.id}`);
-      ids.add(inspected.frontmatter.id);
+      const content = await readFile(absolutePath, "utf8");
+      if (extname(absolutePath).toLowerCase() === ".md") {
+        if (!isExplainerMarkdown(content)) continue;
+        const inspected = inspectMarkdown(content);
+        if (ids.has(inspected.frontmatter.id)) throw new Error(`report id が重複しています: ${inspected.frontmatter.id}`);
+        ids.add(inspected.frontmatter.id);
+        candidates.push({
+          absolutePath,
+          source,
+          root,
+          format: "markdown",
+          content,
+          assets: inspected.assets,
+          report: {
+            format: "markdown",
+            id: inspected.frontmatter.id,
+            summary: inspected.frontmatter.summary,
+            published: inspected.frontmatter.published,
+            lang: inspected.frontmatter.lang,
+            tags: inspected.frontmatter.tags,
+            title: inspected.title,
+            group: root,
+            source,
+            revision: digest(content),
+          },
+        });
+        continue;
+      }
+      const report = htmlReportMetadata(content, source, root);
+      if (ids.has(report.id)) throw new Error(`report id が重複しています: ${report.id}`);
+      ids.add(report.id);
       candidates.push({
         absolutePath,
         source,
         root,
-        markdown,
-        assets: inspected.assets,
-        report: {
-          id: inspected.frontmatter.id,
-          summary: inspected.frontmatter.summary,
-          published: inspected.frontmatter.published,
-          lang: inspected.frontmatter.lang,
-          tags: inspected.frontmatter.tags,
-          title: inspected.title,
-          group: root,
-          source,
-          revision: digest(markdown),
-        },
+        format: "html",
+        content,
+        assets: htmlAssetUrls(content),
+        report,
       });
     }
   }
@@ -205,13 +277,18 @@ async function main(): Promise<void> {
   const reportMap = new Map(candidates.map((candidate) => [candidate.source, { id: candidate.report.id, source: candidate.source }]));
 
   for (const candidate of candidates) {
-    const inspected = inspectMarkdown(candidate.markdown);
-    await validateMermaidSources(inspected.mermaidSources, candidate.source);
-    await parseMarkdown(candidate.markdown, { sourceUrl: sourceUrl(candidate.source), reports: reportMap, validateLinks: true });
     const target = join(publicRoot, candidate.source);
     await mkdir(dirname(target), { recursive: true });
-    await cp(candidate.absolutePath, target);
-    for (const asset of new Set(candidate.assets)) await copyAsset(asset, candidate.source);
+    if (candidate.format === "markdown") {
+      const inspected = inspectMarkdown(candidate.content);
+      await validateMermaidSources(inspected.mermaidSources, candidate.source);
+      await parseMarkdown(candidate.content, { sourceUrl: sourceUrl(candidate.source), reports: reportMap, validateLinks: true });
+      await cp(candidate.absolutePath, target);
+      for (const asset of new Set(candidate.assets)) await copyAsset(asset, candidate.source);
+    } else {
+      await cp(candidate.absolutePath, target);
+      for (const asset of new Set(candidate.assets)) await copyStaticAsset(asset, candidate.source);
+    }
   }
 
   const reports = candidates

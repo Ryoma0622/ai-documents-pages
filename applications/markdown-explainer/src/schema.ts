@@ -8,9 +8,11 @@ export const REPORT_ROOTS = [
 ] as const;
 
 export type ReportRoot = (typeof REPORT_ROOTS)[number];
+export type ReportFormat = "markdown" | "html";
 
 export type ReportFrontmatter = {
   explainer: true;
+  hybridMarkdown: 1;
   id: string;
   summary: string;
   published: string;
@@ -18,7 +20,8 @@ export type ReportFrontmatter = {
   tags: string[];
 };
 
-export type ManifestReport = Omit<ReportFrontmatter, "explainer"> & {
+export type ManifestReport = Omit<ReportFrontmatter, "explainer" | "hybridMarkdown"> & {
+  format: ReportFormat;
   title: string;
   group: ReportRoot;
   source: string;

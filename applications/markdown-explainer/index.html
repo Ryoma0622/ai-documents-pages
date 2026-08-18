@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta
       http-equiv="Content-Security-Policy"
-      content="default-src 'none'; script-src 'self'; style-src 'self' 'nonce-mermaid'; style-src-attr 'unsafe-inline'; img-src 'self'; media-src 'self'; connect-src 'self'; font-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'"
+      content="default-src 'none'; script-src 'self' 'nonce-sandbox'; style-src 'self' 'nonce-mermaid'; style-src-attr 'unsafe-inline'; img-src 'self'; media-src 'self'; connect-src 'self'; frame-src 'self' blob:; worker-src 'none'; font-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'"
     />
     <meta name="description" content="Markdownを正本にして、GitHub Pagesでリッチに読むレポートビューア" />
     <title>Markdown Explainer</title>
@@ -20,6 +20,7 @@
       </a>
       <nav class="site-nav" aria-label="アプリケーション">
         <a href="./">ライブラリ</a>
+        <button id="library-toggle" class="library-toggle" type="button" aria-controls="library-panel" aria-expanded="false">☰ メニュー</button>
         <button id="theme-toggle" type="button" aria-label="テーマを切り替える">テーマ</button>
       </nav>
     </header>

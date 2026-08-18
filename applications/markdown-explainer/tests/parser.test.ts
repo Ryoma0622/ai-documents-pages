@@ -8,6 +8,7 @@ const fence = "`".repeat(3);
 function document(body: string): string {
   return `---
 explainer: true
+hybridMarkdown: 1
 id: demo
 summary: テスト用のレポート
 published: "2026-08-18"
@@ -99,8 +100,10 @@ ${fence}
   assert.match(parsed.html, /<details class="mdx-details"/);
   assert.match(parsed.html, /class="mdx-table-scroll"/);
   assert.match(parsed.html, /<svg[^>]+role="img"[^>]+aria-labelledby=/);
+  assert.match(parsed.html, /<figure class="mdx-svg" data-component="svg">/);
   assert.match(parsed.html, /<title id="user-content-svg-1-title">図<\/title>/);
   assert.match(parsed.html, /data-audio-src="https:\/\/pages.invalid\/content\/researches\/2026\/assets\/demo.mp3"/);
+  assert.match(parsed.html, /<figure class="mdx-audio" data-component="audio"/);
   assert.match(parsed.html, /download>ダウンロード/);
   assert.match(parsed.html, /href="\?report=other#section"/);
   assert.match(parsed.html, /<h1 id="demo-title">Demo title<\/h1>/);
@@ -117,7 +120,60 @@ ${fence}
 test("opt-in detection does not publish ordinary Markdown", () => {
   assert.equal(isExplainerMarkdown("# ordinary"), false);
   assert.equal(isExplainerMarkdown(document("本文").replace("explainer: true", "explainer: false")), false);
+  assert.equal(isExplainerMarkdown(document("本文").replace("hybridMarkdown: 1\n", "")), false);
   assert.equal(isExplainerMarkdown(document("本文")), true);
+});
+
+test("HMD-1 layout, navigation, labels, modal, and sandbox components are semantic", async () => {
+  const markdown = document(`
+::toc[Contents]{minLevel="2" maxLevel="3" ordered="false" mobile="hidden"}
+
+## Section
+
+:label[Beta]{tone="accent" variant="soft" size="sm"} :text[重要]{color="danger" size="lg"}
+
+::::panes{label="比較" columns="2"}
+:::pane{title="正本"}
+Markdown。
+:::
+:::pane{title="表示"}
+HTML。
+:::
+::::
+
+::::cards{label="選択肢" columns="2"}
+:::card{title="一つ目" label="推奨"}
+本文。
+:::
+:::card{title="二つ目"}
+本文。
+:::
+::::
+
+:::modal{id="details" trigger="詳細を見る" title="詳細" size="md"}
+モーダル本文。
+:::
+
+${fence}sandbox-html {title="Demo" description="説明" height="240" scripts="false"}
+<p>実行されるHTML。</p>
+${fence}
+`);
+  const parsed = await parseMarkdown(markdown, { sourceUrl });
+  assert.match(parsed.html, /data-component="toc"/);
+  assert.match(parsed.html, /data-component="label"/);
+  assert.match(parsed.html, /data-component="text"/);
+  assert.match(parsed.html, /data-component="panes"/);
+  assert.match(parsed.html, /data-component="cards"/);
+  assert.match(parsed.html, /data-component="modal"/);
+  assert.match(parsed.html, /aria-labelledby="user-content-modal-details-title"/);
+  assert.match(parsed.html, /data-component="sandbox-html"/);
+  assert.match(parsed.html, /data-sandbox-scripts="false"/);
+  assert.match(parsed.html, /実行されるHTML/);
+  await assert.rejects(parseMarkdown(document(`:label[Bad]{color="red"}`), { sourceUrl }), /属性/);
+  await assert.rejects(parseMarkdown(document(`:label[Bad]{tone="accent" tone="danger"}`), { sourceUrl }), /重複/);
+  await assert.rejects(parseMarkdown(document(`:unknown[Bad]`), { sourceUrl }), /未知/);
+  await assert.rejects(parseMarkdown(document(":::cards{label=\"不正\" columns=\"2\" unknown=\"x\"}\n:::card{title=\"A\"}\nA\n:::\n:::card{title=\"B\"}\nB\n:::\n::::"), { sourceUrl }), /属性/);
+  await assert.rejects(parseMarkdown(document(`${fence}sandbox-html {title="Demo" scripts="true" height="120"}\n<p>x</p>\n${fence}`), { sourceUrl }), /height/);
 });
 
 test("safe HTML, Mermaid, plot, unknown directives, and missing transcripts follow the contract", async () => {
@@ -154,6 +210,7 @@ test("manifest validation is strict", () => {
   const manifest = {
     schemaVersion: 1,
     reports: [{
+      format: "markdown",
       id: "demo",
       summary: "summary",
       published: "2026-08-18",
@@ -166,6 +223,14 @@ test("manifest validation is strict", () => {
     }],
   };
   assert.equal(validateManifest(manifest).length, 1);
+  assert.equal(validateManifest({
+    ...manifest,
+    reports: [{ ...manifest.reports[0], format: "html", source: "content/researches/2026/demo.html" }],
+  }).length, 1);
+  assert.throws(() => validateManifest({
+    ...manifest,
+    reports: [{ ...manifest.reports[0], format: "html" }],
+  }), /拡張子/);
   assert.throws(() => validateManifest({ ...manifest, reports: [{ ...manifest.reports[0], source: "content/../secret.md" }] }), /source/);
   assert.throws(() => validateManifest({ ...manifest, reports: [{ ...manifest.reports[0], source: "content/researches/2026/report.md?x=.md" }] }), /source/);
   assert.throws(() => validateManifest({ ...manifest, reports: [{ ...manifest.reports[0], source: "content/researches/2026\\..\\secret.md" }] }), /source/);

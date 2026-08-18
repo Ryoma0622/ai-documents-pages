@@ -1,5 +1,6 @@
 ---
 explainer: true
+hybridMarkdown: 1
 id: markdown-html-hybrid-platform
 summary: AIが編集しやすいMarkdownを正本にし、人間向けのHTML体験へ変換する基盤の調査とMVP設計。
 published: "2026-08-18"
@@ -12,6 +13,8 @@ tags:
 ---
 
 # Markdown と HTML のハイブリッドレポート基盤
+
+::toc[このページの目次]{minLevel="2" maxLevel="3" ordered="false" mobile="hidden"}
 
 ## 結論
 
@@ -35,6 +38,8 @@ Markdownの正本と、ブラウザで生成するHTML表示を分ける。
 :::
 
 この数値はCloudflareが一つのページで示した例であり、Markdown一般の圧縮率ではない [S5][]。
+
+:label[HMD-1]{tone="accent" variant="soft" size="sm"} :text[記法は宣言的に限定する]{color="muted" size="sm"}
 
 ## 1. MarkdownとHTMLは何が違うか
 
@@ -255,6 +260,41 @@ Mermaidはビルド時に構文を確認し、表示時にstrict設定でSVGへ�
 VueやReactを必須にせず、semantic HTML、CSS、最小限のDOMイベント処理で実装した。
 GitHub Pagesに置くための依存関係はlockfileで固定し、CDNを使わない。
 :::
+
+::::panes{label="正本と表示の役割" columns="2"}
+:::pane{title="Markdown"}
+短い構造と差分をGitでレビューする。
+:::
+:::pane{title="HTML"}
+図、操作、レスポンシブ表示へ変換する。
+:::
+::::
+
+::::cards{label="次の利用場面" columns="2"}
+:::card{title="SPEC.md の設計モック" label="推奨"}
+仕様の中に小さな検証用UIを埋め込む。
+:::
+:::card{title="レビュー用の比較"}
+複数の観点をカードとして並べる。
+:::
+::::
+
+:::modal{id="hmd-boundary" trigger="sandbox の境界を見る" title="実行境界" size="md"}
+実行はユーザーの明示操作で開始し、iframeは限定されたsandboxと子文書CSPの中で動く。
+:::
+
+```sandbox-html {title="Markdown内の軽いHTML PoC" description="実行ボタンを押すとローカルなデモを表示します" height="220" scripts="true"}
+<button id="counter">0</button>
+<a id="blocked-navigation" href="https://example.invalid/navigate">外部ページへ移動するリンク（遮断）</a>
+<img src="https://example.invalid/blocked.png" alt="遮断される画像">
+<script>
+  const counter = document.querySelector('#counter');
+  counter.addEventListener('click', () => {
+    counter.textContent = String(Number(counter.textContent) + 1);
+  });
+  fetch('https://example.invalid/blocked').catch(() => {});
+</script>
+```
 
 ## 7. 残る制約と次の判断
 

@@ -16,6 +16,8 @@ const reportFilter = requireElement<HTMLInputElement>("#report-filter");
 const reportView = requireElement<HTMLElement>("#report-view");
 const status = requireElement<HTMLElement>("#app-status");
 const themeToggle = requireElement<HTMLButtonElement>("#theme-toggle");
+const libraryToggle = requireElement<HTMLButtonElement>("#library-toggle");
+const libraryPanel = requireElement<HTMLElement>("#library-panel");
 const hero = requireElement<HTMLElement>(".hero-panel");
 document.body.classList.add("app-ready");
 
@@ -24,6 +26,8 @@ let reports: ManifestReport[] = [];
 let reportById = new Map<string, ManifestReport>();
 let navigationToken = 0;
 let activeController: AbortController | undefined;
+const sandboxUrls = new Set<string>();
+let cardsResizeCleanup: (() => void) | undefined;
 
 function setStatus(message: string, kind: "info" | "error" = "info"): void {
   status.textContent = message;
@@ -31,8 +35,17 @@ function setStatus(message: string, kind: "info" | "error" = "info"): void {
 }
 
 function clearReport(): void {
+  cardsResizeCleanup?.();
+  cardsResizeCleanup = undefined;
+  for (const url of sandboxUrls) URL.revokeObjectURL(url);
+  sandboxUrls.clear();
   reportView.replaceChildren();
   reportView.hidden = true;
+}
+
+function setLibraryOpen(open: boolean): void {
+  libraryPanel.classList.toggle("is-open", open);
+  libraryToggle.setAttribute("aria-expanded", String(open));
 }
 
 function showError(message: string): void {
@@ -85,7 +98,7 @@ function renderLibrary(): void {
     const summary = document.createElement("span");
     summary.textContent = report.summary;
     const meta = document.createElement("small");
-    meta.textContent = `${formatDate(report.published)} · ${report.tags.join(" / ") || "タグなし"}`;
+    meta.textContent = `${report.format === "html" ? "HTML" : "Markdown"} · ${formatDate(report.published)} · ${report.tags.join(" / ") || "タグなし"}`;
     button.append(title, summary, meta);
     button.addEventListener("click", () => navigateToReport(report.id));
     reportList.append(button);
@@ -97,6 +110,7 @@ function navigateToReport(id: string): void {
   url.search = "";
   url.searchParams.set("report", id);
   history.pushState({}, "", url);
+  setLibraryOpen(false);
   void renderRoute();
 }
 
@@ -113,9 +127,21 @@ async function fetchReport(report: ManifestReport, signal: AbortSignal): Promise
   return new TextDecoder("utf-8", { fatal: true }).decode(bytes);
 }
 
+function renderHtmlReport(report: ManifestReport): void {
+  const frame = document.createElement("iframe");
+  frame.className = "html-report-frame";
+  frame.title = report.title;
+  frame.loading = "eager";
+  frame.referrerPolicy = "no-referrer";
+  frame.src = `${report.source}?v=${encodeURIComponent(report.revision)}`;
+  reportView.append(frame);
+}
+
 function addReportMeta(report: ManifestReport): void {
   const meta = document.createElement("div");
   meta.className = "report-meta";
+  const format = document.createElement("span");
+  format.textContent = report.format === "html" ? "HTML" : "Markdown";
   const date = document.createElement("span");
   date.textContent = formatDate(report.published);
   const group = document.createElement("span");
@@ -123,7 +149,7 @@ function addReportMeta(report: ManifestReport): void {
   const source = document.createElement("a");
   source.href = `https://github.com/Ryoma0622/ai-documents-pages/blob/main/${report.source.slice("content/".length)}`;
   source.textContent = "GitHubで原文を見る";
-  meta.append(date, group, source);
+  meta.append(format, date, group, source);
   reportView.prepend(meta);
 }
 
@@ -189,6 +215,214 @@ function enhanceTabs(tabState: Map<string, string>): void {
   }
   for (const tabsId of tabState.keys()) {
     if (!consumedState.has(tabsId)) throw new Error(`tabs ${tabsId} の URL state は存在しません`);
+  }
+}
+
+function enhanceToc(): void {
+  for (const toc of reportView.querySelectorAll<HTMLElement>('[data-component="toc"]')) {
+    const listHost = toc.querySelector<HTMLElement>('[data-toc="list"]');
+    if (!listHost) throw new Error("toc の出力が不正です");
+    const minLevel = Number(toc.dataset.tocMinLevel || "2");
+    const maxLevel = Number(toc.dataset.tocMaxLevel || "4");
+    const ordered = toc.dataset.tocOrdered === "true";
+    const list = document.createElement(ordered ? "ol" : "ul");
+    const headings = [...reportView.querySelectorAll<HTMLElement>("h1, h2, h3, h4, h5, h6")].filter((heading) => {
+      const level = Number(heading.tagName.slice(1));
+      return level >= minLevel && level <= maxLevel && !toc.contains(heading) && heading.dataset.rendererHeading !== "true" && Boolean(heading.id);
+    });
+    headings.forEach((heading) => {
+      const item = document.createElement("li");
+      const link = document.createElement("a");
+      link.href = `#${encodeURIComponent(heading.id)}`;
+      link.textContent = heading.textContent || heading.id;
+      item.append(link);
+      list.append(item);
+    });
+    if (!headings.length) {
+      const empty = document.createElement("p");
+      empty.className = "mdx-toc-empty";
+      empty.textContent = "見出しはありません。";
+      listHost.replaceChildren(empty);
+    } else {
+      listHost.replaceChildren(list);
+    }
+  }
+}
+
+function enhanceCards(): void {
+  const update = (): void => {
+    const isMobile = window.matchMedia("(max-width: 640px)").matches;
+    for (const group of reportView.querySelectorAll<HTMLElement>('[data-component="cards"]')) {
+      const track = group.querySelector<HTMLElement>('[data-card="track"]');
+      const controls = group.querySelector<HTMLElement>(".mdx-cards-controls");
+      const cards = [...group.querySelectorAll<HTMLElement>('[data-card="item"]')];
+      if (!track || !controls || cards.length < 2) throw new Error("cards の出力が不正です");
+      controls.hidden = !isMobile;
+      if (!isMobile) continue;
+      const previous = controls.querySelector<HTMLButtonElement>('[data-card="previous"]');
+      const next = controls.querySelector<HTMLButtonElement>('[data-card="next"]');
+      const statusNode = controls.querySelector<HTMLElement>('[data-card="status"]');
+      if (!previous || !next || !statusNode) throw new Error("cards の操作部品が不正です");
+      let current = Number(track.dataset.cardCurrent || "0");
+      const setCurrent = (index: number, scroll: boolean): void => {
+        current = Math.max(0, Math.min(cards.length - 1, index));
+        track.dataset.cardCurrent = String(current);
+        statusNode.textContent = `${current + 1} / ${cards.length}`;
+        previous.disabled = current === 0;
+        next.disabled = current === cards.length - 1;
+        if (scroll) cards[current].scrollIntoView({ behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth", block: "nearest", inline: "start" });
+      };
+      const syncCurrent = (): void => {
+        const trackLeft = track.getBoundingClientRect().left;
+        let nearest = 0;
+        let distance = Number.POSITIVE_INFINITY;
+        cards.forEach((card, index) => {
+          const distanceToStart = Math.abs(card.getBoundingClientRect().left - trackLeft);
+          if (distanceToStart < distance) {
+            distance = distanceToStart;
+            nearest = index;
+          }
+        });
+        setCurrent(nearest, false);
+      };
+      if (track.dataset.cardScrollBound !== "true") {
+        track.addEventListener("scroll", syncCurrent, { passive: true });
+        track.dataset.cardScrollBound = "true";
+      }
+      previous.onclick = () => setCurrent(current - 1, true);
+      next.onclick = () => setCurrent(current + 1, true);
+      setCurrent(current, false);
+    }
+  };
+  update();
+  window.addEventListener("resize", update, { passive: true });
+  cardsResizeCleanup = () => window.removeEventListener("resize", update);
+}
+
+function enhanceModals(): void {
+  for (const modal of reportView.querySelectorAll<HTMLElement>('[data-component="modal"]')) {
+    const trigger = modal.querySelector<HTMLButtonElement>("[data-modal-open]");
+    const dialog = modal.querySelector<HTMLDialogElement>("[data-modal-dialog]");
+    const close = modal.querySelector<HTMLButtonElement>("[data-modal-close]");
+    if (!trigger || !dialog || !close || typeof dialog.showModal !== "function") throw new Error("modal の出力が不正です");
+    let restoreFocus: HTMLElement | null = null;
+    const closeDialog = (): void => {
+      if (dialog.open) dialog.close();
+      restoreFocus?.focus();
+      restoreFocus = null;
+    };
+    trigger.addEventListener("click", () => {
+      restoreFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+      dialog.showModal();
+      close.focus();
+    });
+    close.addEventListener("click", closeDialog);
+    dialog.addEventListener("click", (event) => {
+      if (event.target === dialog) closeDialog();
+    });
+    dialog.addEventListener("close", () => {
+      restoreFocus?.focus();
+      restoreFocus = null;
+    });
+  }
+}
+
+function prepareSandboxSource(source: string): string {
+  const parsed = new DOMParser().parseFromString(`<body>${source}</body>`, "text/html");
+  const isSafeResource = (value: string): boolean => {
+    const candidate = value.trim();
+    return Boolean(candidate) && (
+      candidate.startsWith("data:") ||
+      candidate.startsWith("blob:") ||
+      (!candidate.startsWith("/") && !candidate.startsWith("//") && !/^[a-z][a-z0-9+.-]*:/i.test(candidate) && !candidate.split("/").includes(".."))
+    );
+  };
+  for (const element of parsed.body.querySelectorAll("base, meta, a[href], area[href], form, img, audio, video, source, track, iframe, embed, object, link")) {
+    if (element.localName === "base" || (element.localName === "meta" && element.getAttribute("http-equiv")?.toLowerCase() === "refresh")) {
+      element.remove();
+      continue;
+    }
+    if (element.localName === "a" || element.localName === "area") {
+      element.setAttribute("data-hmd-blocked-href", element.getAttribute("href") || "");
+      element.removeAttribute("href");
+      element.removeAttribute("target");
+      continue;
+    }
+    for (const attribute of ["src", "srcset", "poster", "data", "href"]) {
+      const value = element.getAttribute(attribute);
+      if (!value || (element.localName !== "link" && isSafeResource(value))) continue;
+      element.setAttribute(`data-hmd-blocked-${attribute}`, value);
+      element.removeAttribute(attribute);
+    }
+    element.removeAttribute("action");
+    if (element.localName === "form") element.setAttribute("data-hmd-blocked-form", "true");
+  }
+  for (const element of parsed.body.querySelectorAll("style")) {
+    element.textContent = (element.textContent || "").replace(/url\(\s*(['"]?)(?:https?:|\/\/|\/)[^)]*\1\s*\)/gi, "url(data:,)");
+  }
+  return parsed.body.innerHTML;
+}
+
+function enhanceSandboxHtml(): void {
+  const childCsp = (scripts: boolean): string => [
+    "default-src 'none'",
+    `script-src ${scripts ? "'nonce-sandbox'" : "'none'"}`,
+    "style-src 'unsafe-inline'",
+    "img-src data: blob:",
+    "media-src data: blob:",
+    "connect-src 'none'",
+    "frame-src 'none'",
+    "worker-src 'none'",
+    "object-src 'none'",
+    "base-uri 'none'",
+    "form-action 'none'",
+  ].join("; ");
+  for (const figure of reportView.querySelectorAll<HTMLElement>('[data-component="sandbox-html"]')) {
+    const run = figure.querySelector<HTMLButtonElement>("[data-sandbox-run]");
+    const stop = figure.querySelector<HTMLButtonElement>("[data-sandbox-stop]");
+    const canvas = figure.querySelector<HTMLElement>("[data-sandbox-canvas]");
+    const sourceNode = figure.querySelector<HTMLElement>("[data-sandbox-source]");
+    if (!run || !stop || !canvas || !sourceNode) throw new Error("sandbox-html の出力が不正です");
+    let activeUrl: string | undefined;
+    const stopSandbox = (): void => {
+      canvas.replaceChildren();
+      if (activeUrl) {
+        URL.revokeObjectURL(activeUrl);
+        sandboxUrls.delete(activeUrl);
+        activeUrl = undefined;
+      }
+      run.hidden = false;
+      stop.hidden = true;
+    };
+    const runSandbox = (): void => {
+      stopSandbox();
+      const scripts = figure.dataset.sandboxScripts === "true";
+      const source = prepareSandboxSource(sourceNode.textContent || "");
+      const executableSource = scripts
+        ? source.replace(/<script(\s[^>]*)?>([\s\S]*?)<\/script>/gi, (_match, rawAttributes = "", body = "") => {
+          const attributes = String(rawAttributes).trim();
+          if (attributes && !/^type\s*=\s*["']module["']$/i.test(attributes)) throw new Error("sandbox-html の script 属性は type=module 以外を指定できません");
+          return `<script nonce="sandbox"${attributes ? ` ${attributes}` : ""}>${body}</script>`;
+        })
+        : source;
+      const navigationGuard = scripts ? `<script nonce="sandbox">(() => { const block = (event) => { const target = event.target; if (target instanceof Element && target.closest("a[href], area[href], form")) { event.preventDefault(); event.stopImmediatePropagation(); } }; document.addEventListener("click", block, true); document.addEventListener("auxclick", block, true); document.addEventListener("submit", block, true); try { window.open = () => null; } catch {} })();</script>` : "";
+      const documentSource = `<!doctype html><html lang="ja"><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="${childCsp(scripts)}"></head><body>${navigationGuard}${executableSource}</body></html>`;
+      const blob = new Blob([documentSource], { type: "text/html" });
+      activeUrl = URL.createObjectURL(blob);
+      sandboxUrls.add(activeUrl);
+      const frame = document.createElement("iframe");
+      frame.className = "mdx-sandbox-frame";
+      frame.title = figure.dataset.sandboxTitle || "埋め込みHTMLデモ";
+      frame.height = figure.dataset.sandboxHeight || "360";
+      frame.sandbox.value = scripts ? "allow-scripts" : "";
+      frame.referrerPolicy = "no-referrer";
+      frame.src = activeUrl;
+      canvas.append(frame);
+      run.hidden = true;
+      stop.hidden = false;
+    };
+    run.addEventListener("click", runSandbox);
+    stop.addEventListener("click", stopSandbox);
   }
 }
 
@@ -359,8 +593,18 @@ async function renderRoute(): Promise<void> {
     }
     const report = reportById.get(reportId);
     if (!report) throw new Error(`レポート ${reportId} は存在しません`);
+    if (report.format === "html" && tabState.size) throw new Error("HTML レポートには tab state を指定できません");
     hero.hidden = true;
     setStatus(`${report.title} を読み込んでいます…`);
+    if (report.format === "html") {
+      renderHtmlReport(report);
+      addReportMeta(report);
+      document.documentElement.lang = report.lang;
+      document.title = `${report.title} | Markdown Explainer`;
+      reportView.hidden = false;
+      setStatus(`${report.title} を表示しています。`);
+      return;
+    }
     const markdown = await fetchReport(report, activeController.signal);
     if (token !== navigationToken) return;
     const parsed = await parseMarkdown(markdown, {
@@ -373,6 +617,10 @@ async function renderRoute(): Promise<void> {
     reportView.innerHTML = parsed.html;
     addReportMeta(report);
     enhanceTabs(tabState);
+    enhanceToc();
+    enhanceCards();
+    enhanceModals();
+    enhanceSandboxHtml();
     await enhanceMermaid();
     enhanceAudio();
     enhanceImages();
@@ -410,6 +658,7 @@ async function start(): Promise<void> {
 }
 
 reportFilter.addEventListener("input", renderLibrary);
+libraryToggle.addEventListener("click", () => setLibraryOpen(!libraryPanel.classList.contains("is-open")));
 reportView.addEventListener("click", (event) => {
   const target = event.target instanceof Element ? event.target.closest<HTMLAnchorElement>("a[href]") : null;
   const href = target?.getAttribute("href") ?? "";
@@ -417,6 +666,7 @@ reportView.addEventListener("click", (event) => {
   event.preventDefault();
   const next = new URL(target.href, window.location.href);
   history.pushState({}, "", next);
+  setLibraryOpen(false);
   void renderRoute();
 });
 window.addEventListener("popstate", () => void renderRoute());
