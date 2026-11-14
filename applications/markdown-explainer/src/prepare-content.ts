@@ -64,6 +64,7 @@ async function listReportFiles(root: string): Promise<string[]> {
       const absolutePath = join(directory, entry.name);
       if (entry.isSymbolicLink()) throw new Error(`symlink は公開対象 root に置けません: ${absolutePath}`);
       if (entry.isDirectory()) {
+        if (entry.name.endsWith('.presentation')) continue;
         await visit(absolutePath);
       } else if (entry.isFile() && [".md", ".html"].includes(extname(entry.name).toLowerCase())) {
         output.push(absolutePath);

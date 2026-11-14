@@ -6,11 +6,11 @@ import {execFileSync} from 'node:child_process';
 import {chromium} from '@playwright/test';
 import assert from 'node:assert/strict';
 const app=resolve(fileURLToPath(new URL('..',import.meta.url))),repo=resolve(app,'../..');
-const source=join(repo,'researches/2026/_presentation-qa.md'),asset=join(repo,'researches/2026/assets/_presentation-qa');
+const source=join(repo,'researches/2026/_presentation-qa.md'),asset=join(repo,'researches/2026/assets/_presentation-qa.presentation');
 let browser,server;
 try{
   await mkdir(asset,{recursive:true});
-  await writeFile(source,'---\nexplainer: true\nhybridMarkdown: 1\nid: presentation-qa\nsummary: 合成データによるプレゼン検証\npublished: "2026-11-15"\nlang: ja\ntags: [test]\n---\n# 保存と再開\n\n```presentation\nsrc: ./assets/_presentation-qa/presentation.json\ntitle: 保存と再開\n```\n\n:::details{summary="プレゼン原稿" open="false"}\n依頼を保存し、同じ仕事へ戻ります。\n:::\n');
+  await writeFile(source,'---\nexplainer: true\nhybridMarkdown: 1\nid: presentation-qa\nsummary: 合成データによるプレゼン検証\npublished: "2026-11-15"\nlang: ja\ntags: [test]\n---\n# 保存と再開\n\n```presentation\nsrc: ./assets/_presentation-qa.presentation/presentation.json\ntitle: 保存と再開\n```\n\n:::details{summary="プレゼン原稿" open="false"}\n依頼を保存し、同じ仕事へ戻ります。\n:::\n');
   await writeFile(join(asset,'presentation.json'),JSON.stringify({version:1,title:'保存と再開',mode:'script',deck:'slides.html',script:'script.txt',usage:'usage.json',slides:[{title:'保存',script:'依頼を保存します。'},{title:'再開',script:'同じ仕事へ戻ります。'}]}));
   await writeFile(join(asset,'slides.html'),'<!doctype html><html lang="ja"><title>保存と再開</title><h1>保存と再開</h1></html>');
   await writeFile(join(asset,'script.txt'),'依頼を保存し、同じ仕事へ戻ります。');
