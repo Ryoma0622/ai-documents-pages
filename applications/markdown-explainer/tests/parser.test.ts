@@ -2,6 +2,19 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { isExplainerMarkdown, parseMarkdown, validateManifest } from "../src/parser";
 
+test("presentation embeds a relative manifest and requires readable script", async () => {
+  const body = '```presentation\nsrc: ./assets/demo/presentation.json\ntitle: 保存と再開\n```\n\n:::details{summary="原稿" open="false"}\n依頼を保存します。\n:::';
+  const parsed = await parseMarkdown(document(body), {sourceUrl, reports, validateLinks: true});
+  assert.match(parsed.html, /data-component="presentation"/);
+  assert.match(parsed.html, /data-presentation-src="https:\/\/pages.invalid\/content\/researches\/2026\/assets\/demo\/presentation.json"/);
+  assert.match(parsed.html, /依頼を保存します/);
+  assert.doesNotMatch(parsed.html, /<iframe|<script/);
+  await assert.rejects(parseMarkdown(document(body.split('\n\n:::')[0]), {sourceUrl, reports}), /transcript/);
+  for (const src of ['../private.json', 'https://evil.invalid/p.json', '//evil.invalid/p.json', '%2e%2e/private.json']) {
+    await assert.rejects(parseMarkdown(document(body.replace('./assets/demo/presentation.json', src)), {sourceUrl, reports}));
+  }
+});
+
 const sourceUrl = "https://pages.invalid/content/researches/2026/demo.md";
 const fence = "`".repeat(3);
 

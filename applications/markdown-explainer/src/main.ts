@@ -546,6 +546,19 @@ function enhanceAudio(): void {
   }
 }
 
+function enhancePresentations(): void {
+  if (!reportView.querySelector('[data-component="presentation"]')) return;
+  if (document.querySelector('[data-shared-presentation-player]')) {
+    window.dispatchEvent(new Event('explainer-presentations-refresh'));
+    return;
+  }
+  const script = document.createElement('script');
+  script.dataset.sharedPresentationPlayer = '';
+  script.dataset.presentationStyles = new URL('./presentation-player.css', import.meta.url).href;
+  script.src = new URL('./presentation-player.js', import.meta.url).href;
+  document.head.append(script);
+}
+
 function enhanceImages(): void {
   for (const image of reportView.querySelectorAll<HTMLImageElement>("img")) {
     const reportImageError = (): void => setStatus(`画像「${image.alt}」を取得できませんでした。`, "error");
@@ -623,6 +636,7 @@ async function renderRoute(): Promise<void> {
     enhanceSandboxHtml();
     await enhanceMermaid();
     enhanceAudio();
+    enhancePresentations();
     enhanceImages();
     const heading = reportView.querySelector<HTMLElement>("h1");
     if (!heading) throw new Error("report に H1 がありません");

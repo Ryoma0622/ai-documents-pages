@@ -144,6 +144,32 @@ function resolveAssetPath(raw: string, source: string): string {
 }
 
 async function copyAsset(raw: string, source: string): Promise<void> {
+  if (new URL(raw, sourceUrl(source)).pathname.endsWith('.json')) {
+    const absolute = resolveAssetPath(raw, source);
+    const manifest = JSON.parse(await readFile(absolute, 'utf8'));
+    if (manifest.version !== 1 || !Array.isArray(manifest.slides) || manifest.slides.length < 1 || manifest.slides.length > 60) throw new Error('presentation manifest が不正です');
+    const directory = dirname(absolute);
+    const assets: string[] = [absolute];
+    for (const name of [manifest.deck, manifest.script, manifest.video, manifest.audio, manifest.captions, manifest.usage].filter(Boolean)) {
+      if (typeof name !== 'string' || /^(?:[a-z]+:|\/|\\)/i.test(name) || name.includes('\\') || decodeURIComponent(name).split('/').includes('..')) throw new Error('presentation asset が不正です');
+      assets.push(resolve(directory, name));
+    }
+    // Relative image dependencies belong to the generated deck's own directory.
+    const deck = await readFile(resolve(directory, manifest.deck), 'utf8');
+    for (const match of deck.matchAll(/<img\b[^>]*\bsrc="([^"]+)"/g)) {
+      const name = match[1];
+      if (/^(?:[a-z]+:|\/|\\)/i.test(name) || name.includes('\\') || decodeURIComponent(name).split('/').includes('..')) throw new Error('presentation image が不正です');
+      assets.push(resolve(directory, name));
+    }
+    for (const file of assets) {
+      const suffix = relative(repoRoot, file);
+      if (suffix.startsWith('..') || !(await lstat(file)).isFile()) throw new Error('presentation asset が見つかりません');
+      const target = join(publicRoot, 'content', suffix);
+      await mkdir(dirname(target), {recursive: true});
+      await cp(file, target);
+    }
+    return;
+  }
   const absolutePath = resolveAssetPath(raw, source);
   const fileInfo = await lstat(absolutePath).catch(() => null);
   if (!fileInfo?.isFile()) throw new Error(`参照 asset が存在しません: ${raw}`);

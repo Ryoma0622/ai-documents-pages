@@ -269,6 +269,7 @@ const commonAttributes = [
   "dataAudioSrc",
   "dataAudioIndex",
   "dataAudioPlayer",
+  "dataPresentationSrc",
   "dataFootnotes",
   "dataFootnoteRef",
   "dataFootnoteBackref",
@@ -575,6 +576,24 @@ function parseAudio(value: string, node: Node): { title: string; caption: string
   caption ||= title;
   ensureLength(caption, "audio の caption", 1, 160, node);
   return { title, caption, tracks };
+}
+
+function parsePresentation(value: string, node: Node): {src: string; title: string} {
+  const fields: Record<string, string> = {};
+  if (node.meta?.trim()) fail("presentation fence に属性は指定できません", node);
+  for (const line of value.split(/\r?\n/)) {
+    if (!line.trim()) continue;
+    const separator = line.indexOf(":");
+    const key = line.slice(0, separator).trim(), item = line.slice(separator + 1).trim();
+    if (separator < 1 || !["src", "title"].includes(key) || key in fields || !item) fail("presentation のキーは src と title を各1件指定してください", node);
+    fields[key] = item;
+  }
+  if (!fields.src || !fields.title) fail("presentation には src と title が必要です", node);
+  ensureLength(fields.title, "presentation の title", 1, 300, node);
+  let decoded: string;
+  try { decoded = decodeURIComponent(fields.src.split(/[?#]/)[0]); } catch { fail("presentation の URL が不正です", node); }
+  if (/^(?:[a-z]+:|\/|\\)/i.test(fields.src) || /[?#\\]/.test(fields.src) || decoded!.split("/").includes("..") || !decoded!.endsWith(".json")) fail("presentation は相対JSON manifestを指定してください", node);
+  return {src: fields.src, title: fields.title};
 }
 
 function validateSvgNode(node: HastNode, root = true): void {
@@ -999,6 +1018,13 @@ function createHandlers() {
     },
     code(state: any, node: Node): HastNode {
       const lang = (node.lang ?? "").toLowerCase();
+      if (lang === "presentation") {
+        const presentation = parsePresentation(node.value ?? "", node);
+        return makeElement("figure", {className: ["report-presentation"], dataComponent: "presentation", dataPresentationSrc: presentation.src, ariaLabel: presentation.title}, [
+          makeElement("figcaption", {}, [makeText(presentation.title)]),
+          makeElement("a", {href: presentation.src}, [makeText("プレゼン資料の記録を開く")]),
+        ]);
+      }
       if (lang === "svg") {
         svgIndex += 1;
         return renderSvg(node.value ?? "", node.meta, node, svgIndex);
@@ -1140,6 +1166,10 @@ function validateNode(node: Node, context: string, headings: Node[], assets: str
       if (context === "details") fail("details の内部に audio fence は置けません", node);
       const audio = parseAudio(node.value ?? "", node);
       assets.push(...audio.tracks.map((track) => track.src));
+    }
+    if (lang === "presentation") {
+      if (context !== "root") fail("presentation は本文直下に置いてください", node);
+      assets.push(parsePresentation(node.value ?? "", node).src);
     }
     if (lang === "svg") renderSvg(node.value ?? "", node.meta, node, 999);
     if (lang === "sandbox-html") {
@@ -1286,7 +1316,7 @@ function validateNode(node: Node, context: string, headings: Node[], assets: str
   const children = node.children ?? [];
   for (let index = 0; index < children.length; index += 1) {
     const child = children[index];
-    if (child.type === "code" && (child.lang ?? "").toLowerCase() === "audio") {
+    if (child.type === "code" && ["audio", "presentation"].includes((child.lang ?? "").toLowerCase())) {
       const transcript = children[index + 1];
       if (transcript?.type !== "containerDirective" || transcript.name !== "details") {
         fail("audio fence の直後に transcript 用 details を置いてください", child);
@@ -1406,6 +1436,7 @@ function resolveHastUrls(tree: HastNode, options: ParseOptions): void {
     if (typeof attrs.href === "string") attrs.href = resolveReference(attrs.href, options.sourceUrl, "link", options.reports, options.validateLinks ?? true);
     if (typeof attrs.src === "string") attrs.src = resolveReference(attrs.src, options.sourceUrl, node.tagName === "audio" ? "audio" : "image", options.reports, options.validateLinks ?? true);
     if (typeof attrs.dataAudioSrc === "string") attrs.dataAudioSrc = resolveReference(attrs.dataAudioSrc, options.sourceUrl, "audio", options.reports, options.validateLinks ?? true);
+    if (typeof attrs.dataPresentationSrc === "string") attrs.dataPresentationSrc = new URL(attrs.dataPresentationSrc, options.sourceUrl).href;
     if (typeof attrs["data-audio-src"] === "string") attrs["data-audio-src"] = resolveReference(String(attrs["data-audio-src"]), options.sourceUrl, "audio", options.reports, options.validateLinks ?? true);
   });
 }
