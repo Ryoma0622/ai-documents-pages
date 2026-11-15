@@ -12,6 +12,9 @@ try{
   await mkdir(asset,{recursive:true});
   await writeFile(source,'---\nexplainer: true\nhybridMarkdown: 1\nid: presentation-qa\nsummary: 合成データによるプレゼン検証\npublished: "2026-11-15"\nlang: ja\ntags: [test]\n---\n# 保存と再開\n\n```presentation\nsrc: ./assets/_presentation-qa.presentation/presentation.json\ntitle: 保存と再開\n```\n\n:::details{summary="プレゼン原稿" open="false"}\n依頼を保存し、同じ仕事へ戻ります。\n:::\n');
   await writeFile(join(asset,'presentation.json'),JSON.stringify({version:1,title:'保存と再開',mode:'script',deck:'slides.html',script:'script.txt',usage:'usage.json',slides:[{title:'保存',script:'依頼を保存します。'},{title:'再開',script:'同じ仕事へ戻ります。'}]}));
+  const original=JSON.parse(await readFile(join(asset,'presentation.json'),'utf8'));
+  await writeFile(join(asset,'alternate.json'),JSON.stringify({...original,title:'比較版'}));
+  await writeFile(join(asset,'presentation.json'),JSON.stringify({...original,variants:[{id:'alternate',label:'図解画像＋HTML',src:'alternate.json'}]}));
   await writeFile(join(asset,'slides.html'),'<!doctype html><html lang="ja"><title>保存と再開</title><h1>保存と再開</h1></html>');
   await writeFile(join(asset,'script.txt'),'依頼を保存し、同じ仕事へ戻ります。');
   await writeFile(join(asset,'usage.json'),JSON.stringify({stages:[
@@ -40,6 +43,13 @@ try{
   await breakdown.locator('summary').click();
   assert.equal(await breakdown.locator('section').count(),2);
   assert.equal(await breakdown.locator('section').first().isVisible(),true);
+  await page.getByRole('combobox',{name:'プレゼンの種類'}).selectOption('alternate');
+  await page.locator('iframe[title="比較版"]').waitFor();
+  assert.equal(await page.locator('.presentation-current p').textContent(),'同じ仕事へ戻ります。');
+  await page.reload();
+  await page.locator('iframe[title="比較版"]').waitFor();
+  assert.equal(await page.getByRole('combobox',{name:'プレゼンの種類'}).inputValue(),'alternate');
+  assert.equal(await page.locator('.presentation-current p').textContent(),'同じ仕事へ戻ります。');
   assert.deepEqual(errors,[]);
   console.log('PASS: TypeScript HMD manifest export, shared player, scripts, navigation, 320px controls and iframe isolation');
 }finally{

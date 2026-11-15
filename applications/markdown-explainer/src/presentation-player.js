@@ -13,17 +13,32 @@
   async function request(url,options){const response=await fetch(url,options);const data=await response.json();if(!response.ok)throw Error(data.detail||'プレゼンを読み込めませんでした。');return data;}
   function safeAsset(path,url){if(typeof path!=='string'||!path||/^(?:[a-z]+:|\/|\\)/i.test(path)||path.split('/').includes('..')||path.includes('\\'))throw Error('資料のファイル参照が不正です。');const result=new URL(path,url);if(result.origin!==location.origin||!result.pathname.startsWith(new URL('.',url).pathname))throw Error('資料の保存先が不正です。');return result.href;}
   const time=value=>`${Math.floor(value/60)}:${String(Math.floor(value%60)).padStart(2,'0')}`;
-  const mounted=new Map();
+  const mounted=new Map(),loading=new WeakMap(),listeners=new WeakMap();
   async function mount(figure,url){
     url=new URL(url,document.baseURI).href;
     if(new URL(url).origin!==location.origin)throw Error('プレゼンは同じサイトの資料を指定してください。');
-    const data=await request(url);
+    const rootURL=url,token=Symbol();loading.set(figure,token);
+    const rootData=await request(rootURL),variants=[{id:'original',label:'元の資料',src:null}];
+    if(rootData.variants!==undefined){
+      if(!Array.isArray(rootData.variants)||rootData.variants.length>8)throw Error('比較資料の形式が不正です。');
+      for(const variant of rootData.variants){if(!variant||typeof variant.id!=='string'||!/^[-a-z0-9]+$/.test(variant.id)||variants.some(v=>v.id===variant.id)||typeof variant.label!=='string'||!variant.label.trim()||variant.label.length>80)throw Error('比較資料の形式が不正です。');safeAsset(variant.src,rootURL);variants.push(variant);}
+    }
+    const variantKey='presentation-variant:'+rootURL;let storedVariant;try{storedVariant=localStorage.getItem(variantKey);}catch{}
+    const selected=variants.find(v=>v.id===(figure.dataset.presentationVariant||storedVariant||rootData.default_variant))||variants[0];
+    if(selected.src)url=safeAsset(selected.src,rootURL);
+    const data=selected.src?await request(url):rootData;
+    if(loading.get(figure)!==token)return;
     if(data.version!==1||!Array.isArray(data.slides)||data.slides.length<1||data.slides.length>60||data.slides.some(s=>typeof s.title!=='string'||typeof s.script!=='string'))throw Error('プレゼンの形式が不正です。');
-    const signature=JSON.stringify([url,data.mode,data.video,data.slides]);if(mounted.get(figure)===signature)return;
+    const key='presentation:'+rootURL;let saved={};try{saved=JSON.parse(localStorage.getItem(key)||'{}');}catch{}
+    const initialIndex=Number.isInteger(saved.index)?Math.min(Math.max(saved.index,0),data.slides.length-1):0;
+    const signature=JSON.stringify([url,data.mode,data.video,data.slides,variants,selected.id]);if(mounted.get(figure)===signature)return;
+    listeners.get(figure)?.abort();const controller=new AbortController();listeners.set(figure,controller);
+    const listen=(target,type,handler)=>target.addEventListener(type,handler,{signal:controller.signal});
     mounted.set(figure,signature);figure.querySelector('video')?.pause();figure.replaceChildren();figure.dataset.component='presentation';figure.classList.add('report-presentation');
     const fallback=figure.nextElementSibling;if(fallback?.matches('[data-presentation-script-fallback],[data-component=details]'))fallback.hidden=true;
     const heading=el('header','presentation-heading');heading.append(icon('slides'),el('strong','','プレゼン'),el('span','presentation-meta',`${data.slides.length}枚${data.duration_seconds?' · '+time(data.duration_seconds):' · 原稿付き'}`));figure.append(heading);
-    const frame=el('iframe','presentation-deck');frame.title=data.title;frame.setAttribute('sandbox','allow-scripts');frame.referrerPolicy='no-referrer';frame.src=safeAsset(data.deck,url);
+    if(variants.length>1){const choices=el('label','presentation-variants','資料を比較');const select=el('select');select.setAttribute('aria-label','プレゼンの種類');for(const variant of variants){const option=el('option','',variant.label);option.value=variant.id;select.append(option);}select.value=selected.id;select.onchange=()=>{figure.dataset.presentationVariant=select.value;try{localStorage.setItem(variantKey,select.value);}catch{}void mount(figure,rootURL).catch(error=>figure.append(el('p','presentation-error',error.message)));};choices.append(select);figure.append(choices);}
+    const frame=el('iframe','presentation-deck');frame.title=data.title;frame.setAttribute('sandbox','allow-scripts');frame.referrerPolicy='no-referrer';const deckURL=new URL(safeAsset(data.deck,url));deckURL.hash=String(initialIndex);frame.src=deckURL.href;
     const stage=el('div','presentation-stage');stage.append(frame);figure.append(stage);
     let video=null;
     if(data.mode==='audio'&&data.video){video=el('video','presentation-video');video.controls=true;video.playsInline=true;video.preload='metadata';video.src=safeAsset(data.video,url);if(data.captions){const track=el('track');track.kind='captions';track.srclang='ja';track.label='日本語原稿';track.src=safeAsset(data.captions,url);video.append(track);}stage.append(video);frame.hidden=true;}
@@ -31,8 +46,7 @@
     const current=el('section','presentation-current');current.setAttribute('aria-label','現在のスライドの原稿');const title=el('h3'),script=el('p');current.append(title,script);
     const all=el('details','presentation-all-script');all.append(el('summary','','原稿一覧'));const list=el('ol');all.append(list);
     let index=0;
-    const key='presentation:'+url;let saved={};try{saved=JSON.parse(localStorage.getItem(key)||'{}');}catch{}
-    function persist(){try{localStorage.setItem(key,JSON.stringify({index,time:video?.currentTime||0}));}catch{}}
+    function persist(){try{localStorage.setItem(key,JSON.stringify({index,time:video&&video.readyState>=1?video.currentTime:data.slides[index].start??saved.time??0}));}catch{}}
     const theme=()=>document.documentElement.dataset.theme||(matchMedia('(prefers-color-scheme:dark)').matches?'dark':'light');
     function paint(i,seek=false){
       if(!Number.isInteger(i)||i<0||i>=data.slides.length)return;index=i;const slide=data.slides[i];
@@ -44,7 +58,7 @@
       persist();
     }
     const previous=button('前のスライド','prev',()=>paint(index-1,true)),next=button('次のスライド','next',()=>paint(index+1,true));toolbar.append(previous,position,next);
-    if(video){const toggle=button('スライド表示','slides',()=>{frame.hidden=!frame.hidden;video.hidden=!video.hidden;toggle.setAttribute('aria-label',frame.hidden?'スライド表示':'動画表示');toggle.title=toggle.getAttribute('aria-label');paint(index);});toolbar.append(toggle);video.addEventListener('timeupdate',()=>{const active=data.slides.findIndex(s=>video.currentTime>=s.start&&video.currentTime<s.end);if(active>=0&&active!==index)paint(active);persist();});video.addEventListener('loadedmetadata',()=>{if(Number.isFinite(saved.time)&&saved.time>0&&saved.time<video.duration)video.currentTime=saved.time;});video.addEventListener('play',()=>{for(const other of document.querySelectorAll('video,audio'))if(other!==video)other.pause();});}
+    if(video){const toggle=button('スライド表示','slides',()=>{frame.hidden=!frame.hidden;video.hidden=!video.hidden;toggle.setAttribute('aria-label',frame.hidden?'スライド表示':'動画表示');toggle.title=toggle.getAttribute('aria-label');paint(index);});toolbar.append(toggle);listen(video,'timeupdate',()=>{const active=data.slides.findIndex(s=>video.currentTime>=s.start&&video.currentTime<s.end);if(active>=0&&active!==index)paint(active);persist();});listen(video,'loadedmetadata',()=>{const slide=data.slides[index],position=Number.isFinite(saved.time)&&saved.time>=(slide.start??0)&&saved.time<(slide.end??video.duration)?saved.time:slide.start??0;if(position>0&&position<video.duration)video.currentTime=position;});listen(video,'play',()=>{for(const other of document.querySelectorAll('video,audio'))if(other!==video)other.pause();});}
     toolbar.append(button('全画面表示','expand',()=>{if(figure.requestFullscreen)void figure.requestFullscreen();}));
     const downloads=el('div','presentation-downloads');downloads.setAttribute('aria-label','資料を開く');
     for(const [file,label,short] of [[data.deck,'スライドを開く','HTML'],[data.script,'原稿を開く','原稿'],[data.video,'動画をダウンロード','MP4']]){if(!file)continue;const link=el('a','presentation-button');link.href=safeAsset(file,url);link.title=label;link.setAttribute('aria-label',label);link.target='_blank';link.rel='noopener';link.append(icon('download'),el('span','',short));downloads.append(link);}
@@ -71,9 +85,9 @@
       for(const row of rows){if(isAudio(row)){if(audioRecord){records.append(audioRecord);audioRecord=null;}}else records.append(usageRecord(row));}
       costs.append(records,el('p','presentation-note',usage.note||'未取得の利用量・費用は不明です。'));const details=el('details');details.append(el('summary','','詳細記録'));const pre=el('pre');pre.textContent=JSON.stringify(usage,null,2);details.append(pre);const link=el('a','','利用記録JSONを開く');link.href=usageURL;link.target='_blank';link.rel='noopener';costs.append(details,link);
     }catch(error){costs.append(el('p','',error.message));}}
-    frame.addEventListener('load',()=>paint(index));addEventListener('explainer-theme-change',()=>paint(index));
-    addEventListener('message',event=>{if(event.source===frame.contentWindow&&event.data?.type==='presentation-position'&&Number.isInteger(event.data.index)&&event.data.index!==index)paint(event.data.index);});
-    paint(Number.isInteger(saved.index)?Math.min(Math.max(saved.index,0),data.slides.length-1):0);
+    listen(frame,'load',()=>paint(index));listen(window,'explainer-theme-change',()=>paint(index));
+    listen(window,'message',event=>{if(event.source===frame.contentWindow&&event.data?.type==='presentation-position'&&Number.isInteger(event.data.index)&&event.data.index!==index)paint(event.data.index);});
+    paint(initialIndex);
   }
   function enhance(){for(const figure of document.querySelectorAll('[data-presentation-src]'))void mount(figure,figure.dataset.presentationSrc).catch(error=>figure.append(el('p','presentation-error',error.message)));}
   addEventListener('explainer-presentations-refresh',enhance);enhance();

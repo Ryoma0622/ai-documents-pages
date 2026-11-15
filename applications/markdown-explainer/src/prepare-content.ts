@@ -144,9 +144,10 @@ function resolveAssetPath(raw: string, source: string): string {
   return assetAbsolute;
 }
 
-async function copyAsset(raw: string, source: string): Promise<void> {
+async function copyAsset(raw: string, source: string, parents = new Set<string>()): Promise<void> {
   if (new URL(raw, sourceUrl(source)).pathname.endsWith('.json')) {
     const absolute = resolveAssetPath(raw, source);
+    if (parents.has(absolute) || parents.size > 8) throw new Error('presentation variant の循環参照です');
     const manifest = JSON.parse(await readFile(absolute, 'utf8'));
     if (manifest.version !== 1 || !Array.isArray(manifest.slides) || manifest.slides.length < 1 || manifest.slides.length > 60) throw new Error('presentation manifest が不正です');
     const directory = dirname(absolute);
@@ -168,6 +169,15 @@ async function copyAsset(raw: string, source: string): Promise<void> {
       const target = join(publicRoot, 'content', suffix);
       await mkdir(dirname(target), {recursive: true});
       await cp(file, target);
+    }
+    if (manifest.variants !== undefined) {
+      if (!Array.isArray(manifest.variants) || manifest.variants.length > 8) throw new Error('presentation variants が不正です');
+      const ids = new Set(['original']);
+      for (const variant of manifest.variants) {
+        if (!variant || typeof variant.id !== 'string' || !/^[-a-z0-9]+$/.test(variant.id) || ids.has(variant.id) || typeof variant.label !== 'string' || !variant.label.trim() || variant.label.length > 80 || typeof variant.src !== 'string' || /^(?:[a-z]+:|\/|\\)/i.test(variant.src) || variant.src.includes('\\') || decodeURIComponent(variant.src).split('/').includes('..')) throw new Error('presentation variant が不正です');
+        ids.add(variant.id);
+        await copyAsset(variant.src, 'content/' + relative(repoRoot, absolute).split(sep).join('/'), new Set([...parents, absolute]));
+      }
     }
     return;
   }
