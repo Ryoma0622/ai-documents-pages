@@ -14,7 +14,10 @@ try{
   await writeFile(join(asset,'presentation.json'),JSON.stringify({version:1,title:'保存と再開',mode:'script',deck:'slides.html',script:'script.txt',usage:'usage.json',slides:[{title:'保存',script:'依頼を保存します。'},{title:'再開',script:'同じ仕事へ戻ります。'}]}));
   await writeFile(join(asset,'slides.html'),'<!doctype html><html lang="ja"><title>保存と再開</title><h1>保存と再開</h1></html>');
   await writeFile(join(asset,'script.txt'),'依頼を保存し、同じ仕事へ戻ります。');
-  await writeFile(join(asset,'usage.json'),JSON.stringify({stages:[],note:'合成データ。API生成なし。'}));
+  await writeFile(join(asset,'usage.json'),JSON.stringify({stages:[
+    {stage:'音声 1',model:'fixture-tts',tier:'flex',duration_seconds:2,input_tokens:10,output_tokens:20,cached_tokens:0,cost_usd:.002},
+    {stage:'音声 2',model:'fixture-tts',tier:'flex',duration_seconds:2,input_tokens:20,output_tokens:30,cached_tokens:0,cost_usd:.003},
+  ],note:'合成データ。API生成なし。'}));
   execFileSync('npm',['run','build'],{cwd:app,stdio:'pipe'});
   const prefix='/ai-documents-pages/',dist=join(app,'dist');
   server=createServer(async(req,res)=>{try{const relative=decodeURIComponent(new URL(req.url,'http://test').pathname).slice(prefix.length)||'index.html';const file=resolve(dist,relative);if(!file.startsWith(dist+'/'))throw Error();const body=await readFile(file);res.writeHead(200,{'Content-Type':({'.html':'text/html','.js':'application/javascript','.css':'text/css','.json':'application/json','.md':'text/plain','.txt':'text/plain'})[extname(file)]||'application/octet-stream'}).end(body);}catch{res.writeHead(404).end();}});
@@ -28,6 +31,15 @@ try{
   assert.equal(await page.locator('.presentation-current p').textContent(),'同じ仕事へ戻ります。');
   assert.equal(await page.locator('.presentation-deck').getAttribute('sandbox'),'allow-scripts');
   assert.equal(await page.locator('.presentation-toolbar').evaluate(node=>node.scrollWidth<=node.clientWidth+1),true);
+  await page.locator('.presentation-usage > summary').click();
+  const total=page.locator('.presentation-audio-total'),breakdown=total.locator('.presentation-audio-breakdown');
+  assert.match(await total.textContent(),/入力 30 \/ 出力 50 \/ キャッシュ 0/);
+  assert.match(await total.textContent(),/0\.005000 USD/);
+  assert.equal(await breakdown.evaluate(node=>node.open),false);
+  assert.equal(await breakdown.locator('section').first().isVisible(),false);
+  await breakdown.locator('summary').click();
+  assert.equal(await breakdown.locator('section').count(),2);
+  assert.equal(await breakdown.locator('section').first().isVisible(),true);
   assert.deepEqual(errors,[]);
   console.log('PASS: TypeScript HMD manifest export, shared player, scripts, navigation, 320px controls and iframe isolation');
 }finally{

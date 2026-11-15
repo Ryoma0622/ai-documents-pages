@@ -52,13 +52,23 @@
     data.slides.forEach((slide,i)=>{const item=el('li');const jump=button(`${i+1}. ${slide.title}${Number.isFinite(slide.start)?' · '+time(slide.start):''}`,'slides',()=>paint(i,true),true);item.append(jump,el('p','',slide.script));list.append(item);});
     const costs=el('details','presentation-usage');costs.append(el('summary','','生成コスト・利用量'));figure.append(costs);
     if(data.usage){try{const usageURL=safeAsset(data.usage,url),usage=await request(usageURL);const records=el('div','presentation-usage-records');
-      for(const row of usage.stages||[]){const record=el('section');record.append(el('strong','',row.stage||'生成'));const metadata=[row.model,row.tier,row.duration_seconds?time(row.duration_seconds):null].filter(Boolean).join(' · ');record.append(el('p','',metadata));
-        const raw=row.usage||{};const tokens=row.input_tokens??raw.input_tokens??raw.prompt_tokens;const output=row.output_tokens??raw.output_tokens??raw.completion_tokens;const cached=row.cached_tokens??raw.cached_input_tokens??raw.cached_tokens;
+      const values=row=>{const raw=row.usage||{};return{input:row.input_tokens??raw.input_tokens??raw.prompt_tokens,output:row.output_tokens??raw.output_tokens??raw.completion_tokens,cached:row.cached_tokens??raw.cached_input_tokens??raw.cached_tokens,cost:row.cost_usd??raw.cost_usd??raw.estimated_cost_usd??raw.cost,duration:row.duration_seconds};};
+      function usageRecord(row){const record=el('section');record.append(el('strong','',row.stage||'生成'));const metadata=[row.model,row.tier,row.duration_seconds?time(row.duration_seconds):null].filter(Boolean).join(' · ');record.append(el('p','',metadata));
+        const raw=row.usage||{},{input:tokens,output,cached,cost:amount}=values(row);
         if(tokens!==undefined||output!==undefined)record.append(el('p','',`入力 ${tokens??'不明'} / 出力 ${output??'不明'} / キャッシュ ${cached??'不明'}`));
         if(typeof raw.tokens==='string')record.append(el('p','',raw.tokens));
-        const amount=row.cost_usd??raw.cost_usd??raw.estimated_cost_usd??raw.cost;
         const kind=row.cost_kind==='reported'?'提供元の報告値':row.cost_kind==='subscription-allowance-estimate'?'契約枠消費の概算':row.cost_kind==='no-new-api-call'?'今回のAPI呼出しなし':'API料金換算の概算';
-        record.append(el('p','',typeof amount==='number'?`${kind}：${amount.toFixed(6)} USD`:'費用：未取得・不明'));if(row.note)record.append(el('p','',row.note));records.append(record);}
+        record.append(el('p','',typeof amount==='number'?`${kind}：${amount.toFixed(6)} USD`:'費用：未取得・不明'));if(row.note)record.append(el('p','',row.note));return record;}
+      const rows=usage.stages||[],isAudio=row=>/^音声\s+\d+$/.test(row.stage||''),audioRows=rows.filter(isAudio);
+      let audioRecord=null;
+      if(audioRows.length){
+        const sum=key=>{const amounts=audioRows.map(row=>values(row)[key]);return amounts.every(value=>typeof value==='number'&&Number.isFinite(value))?amounts.reduce((total,value)=>total+value,0):undefined;};
+        audioRecord=usageRecord({stage:'音声（合計）',model:[...new Set(audioRows.map(row=>row.model).filter(Boolean))].join(' / '),tier:[...new Set(audioRows.map(row=>row.tier).filter(Boolean))].join(' / '),duration_seconds:sum('duration'),input_tokens:sum('input'),output_tokens:sum('output'),cached_tokens:sum('cached'),cost_usd:sum('cost'),cost_kind:audioRows.every(row=>row.cost_kind==='reported')?'reported':'estimated'});
+        audioRecord.className='presentation-audio-total';
+        const breakdown=el('details','presentation-audio-breakdown');breakdown.append(el('summary','',`スライド別の内訳（${audioRows.length}件）`));
+        const clips=el('div','presentation-usage-records');audioRows.forEach(row=>clips.append(usageRecord(row)));breakdown.append(clips);audioRecord.append(breakdown);
+      }
+      for(const row of rows){if(isAudio(row)){if(audioRecord){records.append(audioRecord);audioRecord=null;}}else records.append(usageRecord(row));}
       costs.append(records,el('p','presentation-note',usage.note||'未取得の利用量・費用は不明です。'));const details=el('details');details.append(el('summary','','詳細記録'));const pre=el('pre');pre.textContent=JSON.stringify(usage,null,2);details.append(pre);const link=el('a','','利用記録JSONを開く');link.href=usageURL;link.target='_blank';link.rel='noopener';costs.append(details,link);
     }catch(error){costs.append(el('p','',error.message));}}
     frame.addEventListener('load',()=>paint(index));addEventListener('explainer-theme-change',()=>paint(index));
@@ -72,7 +82,7 @@
   const query=new URLSearchParams({slug});if(contextId)query.set('context_id',contextId);
   let state=null,timer=null,polling=false,autoFigure=null;
   const dock=window.ExplainerDock,host=dock?.hostDocument()||document;css(host);
-  const trigger=button('プレゼン作成','slides',()=>{dialog.showModal();void refresh();},true);trigger.id='report-presentation-generate';
+  const trigger=button('プレゼン作成','slides',()=>{dialog.showModal();void refresh();},true);trigger.id='report-presentation-generate';trigger.className='app-menu-item';
   if(dock)dock.mountMenuItem(trigger,86);else(config.menu||host.querySelector('[data-book-presentation-menu]')||document.body).append(trigger);
   const dialog=host.createElement('dialog');dialog.className='presentation-dialog';dialog.setAttribute('aria-label','プレゼン作成');
   dialog.innerHTML='<form><header><h2>プレゼン作成</h2></header><fieldset><legend>出力</legend><label><input type="radio" name="mode" value="script" checked>スライド＋原稿</label><label><input type="radio" name="mode" value="audio">スライド＋原稿＋音声・動画</label></fieldset><label>スライド枚数<input name="slides" type="number" min="3" max="40" value="12"></label><label>対象者・説明の希望<textarea name="instructions" rows="3" maxlength="5000"></textarea></label><p class="presentation-note">構成・原稿の生成にモデルの利用枠を使います。音声・動画を選ぶとGemini TTS（Flex）の利用料が加わります。利用量と費用は完成資料の生成詳細に記録します。</p><p role="status" aria-live="polite"></p><p class="presentation-note">画面を閉じても生成は続きます。サーバー再起動時は保存済み結果を保持して中断を表示します。</p><footer><button type="button" data-close aria-label="閉じる" title="閉じる"></button><button type="submit">作成する</button></footer></form>';
